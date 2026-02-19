@@ -22,12 +22,23 @@ export const events = pgTable(
     verifiedCostUsd: numeric('verified_cost_usd', { precision: 12, scale: 6 }),
     isCacheHit: boolean('is_cache_hit').default(false),
     metadata: jsonb('metadata'),
+    // Streaming and error tracking fields
+    isStreaming: boolean('is_streaming').default(false),
+    errorCode: text('error_code'),
+    retryCount: integer('retry_count').default(0),
+    isError: boolean('is_error').default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
+    // Cursor-based pagination composite index (critical for performance)
+    createdAtIdIdx: index('events_created_at_id_idx').on(table.createdAt.desc(), table.id),
+    // Filter indexes
+    featureIdx: index('events_feature_idx').on(table.feature),
+    modelIdx: index('events_model_idx').on(table.model),
+    providerIdx: index('events_provider_idx').on(table.provider),
+    // Composite indexes for common queries
     featureTimeIdx: index('events_feature_time_idx').on(table.feature, table.createdAt),
     userTimeIdx: index('events_user_time_idx').on(table.userId, table.createdAt),
-    createdAtIdx: index('events_created_at_idx').on(table.createdAt),
     traceIdIdx: index('events_trace_id_idx').on(table.traceId),
   })
 );

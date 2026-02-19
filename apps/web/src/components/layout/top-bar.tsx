@@ -1,17 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useTimeRange } from '@/lib/time-range-context';
 
 const TIME_RANGES = [
-  { label: '1h', value: '1h' },
-  { label: '6h', value: '6h' },
-  { label: '24h', value: '24h' },
-  { label: '7d', value: '7d' },
-  { label: '30d', value: '30d' },
+  { label: '1h', value: '1h' as const },
+  { label: '6h', value: '6h' as const },
+  { label: '24h', value: '24h' as const },
+  { label: '7d', value: '7d' as const },
+  { label: '30d', value: '30d' as const },
 ];
 
 export function TopBar() {
-  const [range, setRange] = useState('24h');
+  const { range, setRange } = useTimeRange();
 
   return (
     <header className="h-12 border-b border-border-default bg-bg-surface flex items-center justify-between px-4">

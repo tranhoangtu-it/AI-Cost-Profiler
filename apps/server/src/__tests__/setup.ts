@@ -12,6 +12,10 @@ vi.mock('../lib/redis.js', () => ({
     get: vi.fn().mockResolvedValue('0'),
     keys: vi.fn().mockResolvedValue([]),
     mget: vi.fn().mockResolvedValue([]),
+    incr: vi.fn().mockResolvedValue(1),
+    expire: vi.fn().mockResolvedValue(1),
+    ttl: vi.fn().mockResolvedValue(60),
+    setex: vi.fn().mockResolvedValue('OK'),
   },
   redisSub: {
     subscribe: vi.fn(),
@@ -33,6 +37,7 @@ vi.mock('../db/index.js', () => ({
     }),
     select: vi.fn(),
     query: vi.fn(),
+    execute: vi.fn(),
   },
   events: {
     create: vi.fn(),

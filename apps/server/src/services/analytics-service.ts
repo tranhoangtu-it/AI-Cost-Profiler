@@ -1,6 +1,6 @@
 import { db, events } from '../db/index.js';
 import { redis, REDIS_KEYS } from '../lib/redis.js';
-import { sql } from 'drizzle-orm';
+import { sql, desc, lt, eq, and, or, gte, lte } from 'drizzle-orm';
 import type {
   CostBreakdownQuery,
   CostBreakdownItem,
@@ -9,6 +9,13 @@ import type {
   PromptAnalysis,
   TimeRange,
 } from '@ai-cost-profiler/shared';
+import {
+  decodeCursor,
+  formatPaginatedResponse,
+  parseLimit,
+  type PaginatedResponse,
+} from '../utils/pagination.js';
+import type { Event } from '../db/schema.js';
 
 // Whitelist of allowed groupBy columns to prevent SQL injection
 const GROUP_BY_COLUMNS: Record<string, string> = {
@@ -187,7 +194,7 @@ export async function getPromptAnalysis(
       AND created_at <= ${to}
   `);
 
-  const medianTokens = parseFloat((medianResult.rows[0] as any).median_tokens);
+  const medianTokens = parseFloat((medianResult.rows[0] as any).median_tokens || '0');
 
   // Find prompts with high token usage (>1.5x median)
   const bloatThreshold = Math.floor(medianTokens * 1.5);
@@ -215,8 +222,59 @@ export async function getPromptAnalysis(
     occurrences: parseInt(row.occurrences),
     totalCostUsd: parseFloat(row.total_cost_usd),
     avgTokens: parseFloat(row.avg_tokens),
-    similarPrompts: [], // Placeholder - would use pgvector for full implementation
+    similarPrompts: [], // Use findSimilarPrompts() from prompt-similarity-service for full implementation
   }));
+}
+
+/**
+ * Get paginated events list
+ */
+export async function getEventsList(
+  from: string,
+  to: string,
+  cursor?: string,
+  limit: string = '50',
+  filters?: {
+    feature?: string;
+    model?: string;
+    provider?: string;
+  }
+): Promise<PaginatedResponse<Event>> {
+  const parsedLimit = parseLimit(limit, 50, 200);
+
+  // Build WHERE conditions
+  const conditions = [
+    gte(events.createdAt, new Date(from)),
+    lte(events.createdAt, new Date(to)),
+  ];
+
+  if (filters?.feature) conditions.push(eq(events.feature, filters.feature));
+  if (filters?.model) conditions.push(eq(events.model, filters.model));
+  if (filters?.provider) conditions.push(eq(events.provider, filters.provider));
+
+  // Add cursor conditions for pagination
+  if (cursor) {
+    const { timestamp, id } = decodeCursor(cursor);
+    conditions.push(
+      or(
+        lt(events.createdAt, new Date(timestamp)),
+        and(
+          eq(events.createdAt, new Date(timestamp)),
+          lt(events.id, id)
+        )
+      )!
+    );
+  }
+
+  // Query with limit+1 to check hasMore
+  const results = await db
+    .select()
+    .from(events)
+    .where(and(...conditions))
+    .orderBy(desc(events.createdAt), desc(events.id))
+    .limit(parsedLimit + 1);
+
+  return formatPaginatedResponse(results, parsedLimit);
 }
 
 /**

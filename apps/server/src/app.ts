@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { eventRouter } from './routes/event-routes.js';
 import { analyticsRouter } from './routes/analytics-routes.js';
 import { streamRouter } from './routes/stream-routes.js';
+import { exportRouter } from './routes/export-routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
 
 /**
@@ -38,6 +39,7 @@ export function createApp(): express.Application {
   app.use('/api/v1/events', eventRouter);
   app.use('/api/v1/analytics', analyticsRouter);
   app.use('/api/v1/stream', streamRouter);
+  app.use('/api/v1/export', exportRouter);
 
   // 404 handler
   app.use(notFoundHandler);

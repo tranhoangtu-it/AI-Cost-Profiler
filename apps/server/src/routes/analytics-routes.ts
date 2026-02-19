@@ -1,13 +1,16 @@
 import { Router, type Router as RouterType } from 'express';
 import { costBreakdownQuerySchema, timeRangeSchema, baseTimeRangeSchema } from '@ai-cost-profiler/shared';
 import { validateQuery } from '../middleware/request-validator.js';
+import { rateLimiters } from '../middleware/rate-limiter.js';
 import {
   getCostBreakdown,
   getFlamegraphData,
   getTimeseries,
   getPromptAnalysis,
   getRealtimeTotals,
+  getEventsList,
 } from '../services/analytics-service.js';
+import { findSimilarPrompts } from '../services/prompt-similarity-service.js';
 
 export const analyticsRouter: RouterType = Router();
 
@@ -16,6 +19,7 @@ export const analyticsRouter: RouterType = Router();
  */
 analyticsRouter.get(
   '/cost-breakdown',
+  rateLimiters.analytics,
   validateQuery(costBreakdownQuerySchema),
   async (req, res, next) => {
     try {
@@ -33,6 +37,7 @@ analyticsRouter.get(
  */
 analyticsRouter.get(
   '/flamegraph',
+  rateLimiters.analytics,
   validateQuery(baseTimeRangeSchema),
   async (req, res, next) => {
     try {
@@ -50,6 +55,7 @@ analyticsRouter.get(
  */
 analyticsRouter.get(
   '/timeseries',
+  rateLimiters.analytics,
   validateQuery(timeRangeSchema),
   async (req, res, next) => {
     try {
@@ -67,6 +73,7 @@ analyticsRouter.get(
  */
 analyticsRouter.get(
   '/prompts',
+  rateLimiters.analytics,
   validateQuery(baseTimeRangeSchema),
   async (req, res, next) => {
     try {
@@ -82,9 +89,52 @@ analyticsRouter.get(
 /**
  * GET /realtime-totals - Real-time aggregates from Redis
  */
-analyticsRouter.get('/realtime-totals', async (req, res, next) => {
+analyticsRouter.get('/realtime-totals', rateLimiters.analytics, async (req, res, next) => {
   try {
     const result = await getRealtimeTotals();
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /events - Paginated events list with filters
+ */
+analyticsRouter.get('/events', rateLimiters.analytics, async (req, res, next) => {
+  try {
+    const { from, to, cursor, limit, feature, model, provider } = req.query as any;
+
+    if (!from || !to) {
+      return res.status(400).json({ error: 'from and to parameters are required' });
+    }
+
+    const result = await getEventsList(from, to, cursor, limit, {
+      feature,
+      model,
+      provider,
+    });
+
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /prompts/:id/similar - Find similar prompts using hash-based grouping
+ */
+analyticsRouter.get('/prompts/:id/similar', rateLimiters.analytics, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { threshold = '0.8', limit = '10' } = req.query as any;
+
+    const result = await findSimilarPrompts(
+      id,
+      parseFloat(threshold),
+      parseInt(limit, 10)
+    );
+
     res.json(result);
   } catch (error) {
     next(error);

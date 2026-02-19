@@ -97,7 +97,7 @@ describe('profileAI', () => {
       };
 
       expect(() => profileAI(mockGeminiClient, mockConfig)).toThrow(
-        'Unsupported client: must be OpenAI or Anthropic SDK instance'
+        'Unsupported client: must be OpenAI, Anthropic, or Google Gemini SDK instance'
       );
     });
 
@@ -105,7 +105,7 @@ describe('profileAI', () => {
       const emptyObject = {};
 
       expect(() => profileAI(emptyObject, mockConfig)).toThrow(
-        'Unsupported client: must be OpenAI or Anthropic SDK instance'
+        'Unsupported client: must be OpenAI, Anthropic, or Google Gemini SDK instance'
       );
     });
 
@@ -247,7 +247,7 @@ describe('profileAI', () => {
       };
 
       expect(() => profileAI(openaiWithStringChat, mockConfig)).toThrow(
-        'Unsupported client: must be OpenAI or Anthropic SDK instance'
+        'Unsupported client: must be OpenAI, Anthropic, or Google Gemini SDK instance'
       );
     });
 
@@ -257,7 +257,7 @@ describe('profileAI', () => {
       };
 
       expect(() => profileAI(anthropicWithStringMessages, mockConfig)).toThrow(
-        'Unsupported client: must be OpenAI or Anthropic SDK instance'
+        'Unsupported client: must be OpenAI, Anthropic, or Google Gemini SDK instance'
       );
     });
   });

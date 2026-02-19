@@ -3,8 +3,9 @@
 import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
+import { ChartSkeleton } from '@/components/dashboard/skeleton-loaders';
 import type { FlamegraphNode } from '@ai-cost-profiler/shared';
-import { useTimeRange } from '@/lib/use-time-range';
+import { useTimeRange } from '@/lib/time-range-context';
 
 const CostFlamegraph = dynamic(
   () => import('@/components/charts/cost-flamegraph').then(mod => ({ default: mod.CostFlamegraph })),
@@ -27,7 +28,7 @@ export default function FlamegraphPage() {
       </p>
 
       <div className="rounded-lg border border-border-default bg-bg-surface p-5">
-        {isLoading && <p className="text-text-muted">Loading flamegraph...</p>}
+        {isLoading && <ChartSkeleton />}
         {data && <CostFlamegraph data={data} />}
         {!isLoading && !data && (
           <p className="text-text-muted">No data for selected time range.</p>

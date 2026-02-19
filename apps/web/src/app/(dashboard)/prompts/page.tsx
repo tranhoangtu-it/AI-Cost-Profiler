@@ -3,9 +3,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import { DataTable } from '@/components/dashboard/data-table';
+import { ExportButton } from '@/components/dashboard/export-button';
+import { TableSkeleton } from '@/components/dashboard/skeleton-loaders';
 import { formatTokens } from '@/lib/utils';
 import type { PromptAnalysis } from '@ai-cost-profiler/shared';
-import { useTimeRange } from '@/lib/use-time-range';
+import { useTimeRange } from '@/lib/time-range-context';
 
 const columns = [
   { key: 'content' as const, label: 'Prompt Content', render: (v: unknown) => {
@@ -34,10 +36,15 @@ export default function PromptsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Prompt Inspector</h1>
-      <p className="text-sm text-text-secondary">
-        Analyze prompt patterns and find similar or duplicate prompts to optimize costs.
-      </p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-xl font-semibold">Prompt Inspector</h1>
+          <p className="text-sm text-text-secondary">
+            Analyze prompt patterns and find similar or duplicate prompts to optimize costs.
+          </p>
+        </div>
+        <ExportButton endpoint="/prompts" filename="prompt-analysis" />
+      </div>
 
       {!isLoading && (
         <div className="flex gap-2">
@@ -54,7 +61,7 @@ export default function PromptsPage() {
 
       <div className="rounded-lg border border-border-default bg-bg-surface p-4">
         {isLoading ? (
-          <p className="text-text-muted">Loading prompt analysis...</p>
+          <TableSkeleton />
         ) : (
           <DataTable columns={columns} data={items} />
         )}

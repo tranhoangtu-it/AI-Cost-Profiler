@@ -4,9 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import { CostTreemap } from '@/components/charts/cost-treemap';
 import { DataTable } from '@/components/dashboard/data-table';
+import { ExportButton } from '@/components/dashboard/export-button';
+import { TableSkeleton, ChartSkeleton } from '@/components/dashboard/skeleton-loaders';
 import { formatCost, formatTokens, formatLatency } from '@/lib/utils';
 import type { CostBreakdownItem, FlamegraphNode } from '@ai-cost-profiler/shared';
-import { useTimeRange } from '@/lib/use-time-range';
+import { useTimeRange } from '@/lib/time-range-context';
 
 const columns = [
   { key: 'dimension' as const, label: 'Feature' },
@@ -19,12 +21,12 @@ const columns = [
 export default function FeaturesPage() {
   const { from, to } = useTimeRange();
 
-  const { data: breakdown } = useQuery({
+  const { data: breakdown, isLoading: breakdownLoading } = useQuery({
     queryKey: ['cost-breakdown', 'feature', from, to],
     queryFn: () => api.getCostBreakdown({ from, to, groupBy: 'feature' }) as Promise<CostBreakdownItem[]>,
   });
 
-  const { data: flamegraphResp } = useQuery({
+  const { data: flamegraphResp, isLoading: flamegraphLoading } = useQuery({
     queryKey: ['flamegraph', from, to],
     queryFn: () => api.getFlamegraph({ from, to }) as Promise<FlamegraphNode>,
   });
@@ -34,16 +36,19 @@ export default function FeaturesPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Feature Breakdown</h1>
+      <div className="flex justify-between items-center">
+        <h1 className="text-xl font-semibold">Feature Breakdown</h1>
+        <ExportButton endpoint="/features" filename="feature-breakdown" />
+      </div>
 
       <div className="rounded-lg border border-border-default bg-bg-surface p-5">
         <h2 className="text-sm font-semibold text-text-secondary mb-4">Cost Treemap</h2>
-        <CostTreemap data={treemapData} />
+        {flamegraphLoading ? <ChartSkeleton /> : <CostTreemap data={treemapData} />}
       </div>
 
       <div className="rounded-lg border border-border-default bg-bg-surface p-4">
         <h2 className="text-sm font-semibold text-text-secondary mb-4">Feature Details</h2>
-        <DataTable columns={columns} data={items} />
+        {breakdownLoading ? <TableSkeleton /> : <DataTable columns={columns} data={items} />}
       </div>
     </div>
   );

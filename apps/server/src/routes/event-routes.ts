@@ -1,6 +1,7 @@
 import { Router, type Router as RouterType } from 'express';
 import { batchEventRequestSchema } from '@ai-cost-profiler/shared';
 import { validateBody } from '../middleware/request-validator.js';
+import { rateLimiters } from '../middleware/rate-limiter.js';
 import { processEventBatch } from '../services/event-processor.js';
 import { logger } from '../middleware/error-handler.js';
 
@@ -11,6 +12,7 @@ export const eventRouter: RouterType = Router();
  */
 eventRouter.post(
   '/',
+  rateLimiters.events,
   validateBody(batchEventRequestSchema),
   async (req, res, next) => {
     try {

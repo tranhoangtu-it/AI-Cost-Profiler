@@ -88,6 +88,19 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     outputPer1M: 0.30,
     cachedInputPer1M: 0.01875,
   },
+  'gemini-1.5-flash-8b': {
+    model: 'gemini-1.5-flash-8b',
+    provider: 'google-gemini',
+    inputPer1M: 0.0375,
+    outputPer1M: 0.15,
+    cachedInputPer1M: 0.009375,
+  },
+  'gemini-2.0-flash-exp': {
+    model: 'gemini-2.0-flash-exp',
+    provider: 'google-gemini',
+    inputPer1M: 0,
+    outputPer1M: 0,
+  },
   'gemini-1.0-pro': {
     model: 'gemini-1.0-pro',
     provider: 'google-gemini',

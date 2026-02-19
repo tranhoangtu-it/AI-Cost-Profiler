@@ -3,6 +3,7 @@ import { EventBatcher } from './transport/event-batcher.js';
 import { detectProvider } from './utils/detect-provider.js';
 import { createOpenAIInterceptor } from './providers/openai-interceptor.js';
 import { createAnthropicInterceptor } from './providers/anthropic-interceptor.js';
+import { createGeminiInterceptor } from './providers/gemini-interceptor.js';
 
 /**
  * Wrap LLM client with profiling instrumentation
@@ -59,6 +60,14 @@ export function profileAI<T>(client: T, config: SdkConfig): T {
 
     case 'anthropic':
       return createAnthropicInterceptor(
+        client as any,
+        batcher,
+        config.feature,
+        config.userId
+      ) as T;
+
+    case 'google-gemini':
+      return createGeminiInterceptor(
         client as any,
         batcher,
         config.feature,

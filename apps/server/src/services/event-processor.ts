@@ -39,6 +39,11 @@ export async function processEventBatch(batch: LlmEvent[]): Promise<void> {
         verifiedCostUsd: verifiedCost.toString(),
         isCacheHit: (event.cachedTokens || 0) > 0,
         metadata: event.metadata,
+        // New fields for streaming and error tracking
+        isStreaming: event.isStreaming || false,
+        errorCode: event.errorCode,
+        retryCount: event.retryCount || 0,
+        isError: event.isError || false,
         createdAt: new Date(event.timestamp),
       };
     });

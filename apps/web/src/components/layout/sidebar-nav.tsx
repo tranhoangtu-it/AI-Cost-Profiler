@@ -4,12 +4,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
-  BarChart3, Flame, LayoutGrid, MessageSquare, Radio,
+  BarChart3, Flame, LayoutGrid, MessageSquare, Radio, GitCompare,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/overview', label: 'Cost Overview', icon: BarChart3 },
   { href: '/features', label: 'Feature Breakdown', icon: LayoutGrid },
+  { href: '/models', label: 'Model Comparison', icon: GitCompare },
   { href: '/flamegraph', label: 'Flamegraph', icon: Flame },
   { href: '/prompts', label: 'Prompt Inspector', icon: MessageSquare },
   { href: '/realtime', label: 'Real-time Feed', icon: Radio },
