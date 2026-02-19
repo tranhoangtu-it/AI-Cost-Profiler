@@ -121,7 +121,7 @@ async function seed() {
       latencyMs,
       estimatedCostUsd: String(cost),
       verifiedCostUsd: String(cost),
-      isCacheHit: false,
+      isCacheHit: cachedTokens > 0,
       isStreaming,
       isError,
       errorCode,

@@ -64,24 +64,32 @@ src/
 ### Server Structure (apps/server)
 ```
 src/
-├── db/                  # Database layer
-│   ├── schema.ts        # Drizzle schema
-│   └── connection.ts    # DB client
-├── lib/                 # Infrastructure
-│   └── redis.ts
-├── middleware/          # Express middleware
-│   ├── request-validator.ts
-│   └── error-handler.ts
-├── routes/              # API routes
-│   ├── event-routes.ts
-│   ├── analytics-routes.ts
-│   └── stream-routes.ts
-├── services/            # Business logic
-│   ├── event-processor.ts
-│   ├── analytics-service.ts
-│   └── sse-manager.ts
-├── app.ts               # Express app factory
-└── index.ts             # Entry point
+├── db/                              # Database layer
+│   ├── schema.ts                    # Drizzle schema
+│   └── connection.ts                # DB client
+├── lib/                             # Infrastructure
+│   └── redis.ts                     # Redis client & keys
+├── middleware/                      # Express middleware
+│   ├── request-validator.ts         # Zod validation
+│   ├── error-handler.ts             # Error handling
+│   └── rate-limiter.ts              # Fixed-window limiter
+├── routes/                          # API routes
+│   ├── event-routes.ts              # Event ingestion
+│   ├── analytics-routes.ts          # Analytics queries
+│   ├── stream-routes.ts             # SSE streaming
+│   └── export-routes.ts             # CSV/JSON export
+├── services/                        # Business logic
+│   ├── event-processor.ts           # Event storage
+│   ├── analytics-service.ts         # Re-exports (backward compat)
+│   ├── cost-breakdown-service.ts    # Cost breakdown logic
+│   ├── flamegraph-service.ts        # Flamegraph aggregation
+│   ├── timeseries-service.ts        # Time-series logic
+│   ├── sse-manager.ts               # SSE connection mgmt
+│   └── prompt-similarity-service.ts # Prompt embeddings
+├── utils/                           # Utilities
+│   └── pagination.ts                # Cursor pagination
+├── app.ts                           # Express app factory
+└── index.ts                         # Entry point
 ```
 
 ### Web Structure (apps/web)
@@ -132,33 +140,46 @@ src/
 
 ## Error Handling
 
-### SDK
+### SDK Error Classification
 ```typescript
-// Return error objects, don't throw
-export function calculateCost(tokens: number, pricing: ModelPricing): number {
-  if (tokens < 0) return 0;
-  return (tokens / 1_000_000) * pricing.inputPer1M;
+// Unified error classification across OpenAI/Anthropic/Gemini
+import { classifyApiError } from './providers/error-classifier.js';
+
+try {
+  const response = await openai.chat.completions.create({...});
+} catch (error) {
+  const errorCode = classifyApiError(error);
+  // Returns: 'rate_limit' | 'timeout' | 'server_error' | 'invalid_request' | 'unknown_error'
 }
 ```
 
-### Server
+**Error Classification Map**:
+- `rate_limit`: HTTP 429 (OpenAI), RESOURCE_EXHAUSTED (Gemini)
+- `timeout`: ETIMEDOUT, 'timeout' in message, DEADLINE_EXCEEDED (Gemini)
+- `server_error`: HTTP 500+, UNAVAILABLE (Gemini)
+- `invalid_request`: HTTP 400/401/403, INVALID_ARGUMENT (Gemini)
+- `unknown_error`: Default fallback
+
+### Server Error Handling
 ```typescript
-// Use Express error middleware
+// Global error middleware with logging
 app.use((err, req, res, next) => {
-  logger.error({ err, req }, 'Request failed');
+  logger.error({ err, path: req.path, method: req.method }, 'Request failed');
   res.status(err.status || 500).json({
-    error: err.message || 'Internal server error'
+    error: err.message || 'Internal server error',
+    code: err.code
   });
 });
 ```
 
-### Web
+### Web Error Handling
 ```typescript
-// TanStack Query handles errors
+// TanStack Query + exponential backoff for SSE reconnection
 const { data, error } = useQuery({
   queryKey: ['analytics', 'cost-breakdown'],
   queryFn: () => fetchCostBreakdown(),
   retry: 3,
+  retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
 });
 ```
 
@@ -225,6 +246,30 @@ export function validateRequest(schema: z.ZodSchema) {
 
 ## Database Standards
 
+### SQL Safety (Parameterized Queries)
+```typescript
+// All Drizzle queries are parameterized - prevents SQL injection
+const results = await db
+  .select()
+  .from(events)
+  .where(
+    and(
+      gte(events.createdAt, new Date(from)),
+      lte(events.createdAt, new Date(to)),
+      eq(events.feature, feature)  // Parameterized
+    )
+  );
+
+// For raw SQL, use whitelist guards (GRANULARITY_VALUES)
+const GRANULARITY_VALUES = ['hour', 'day', 'week'] as const;
+if (!GRANULARITY_VALUES.includes(granularity)) {
+  throw new Error('Invalid granularity');
+}
+const result = await db.execute(
+  sql`SELECT ... GROUP BY DATE_TRUNC('${sql.raw(granularity)}', created_at)`
+);
+```
+
 ### Drizzle ORM
 ```typescript
 import { pgTable, text, integer, numeric, timestamp } from 'drizzle-orm/pg-core';
@@ -272,26 +317,72 @@ logger.error({ err, eventId }, 'Event processing failed');
 ## Performance Guidelines
 
 ### SDK
-- **Batching**: Max 10 events or 5s interval
-- **No blocking**: Async event transmission
-- **Lightweight**: < 1ms overhead per call
+- **Batching**: Max 10 events or 5s interval (reduces HTTP by 10x)
+- **Non-blocking**: Async event transmission, no await required
+- **Lightweight**: < 1ms overhead per call, < 5KB bundle
+- **Stream optimization**: Anthropic emits single event at completion (not per-delta)
+- **Error callbacks**: Mid-stream errors trigger immediately without waiting for batch
+- **All providers**: OpenAI, Anthropic, Gemini with consistent error classification
 
 ### Server
-- **Connection pooling**: Drizzle + PostgreSQL
-- **Redis caching**: TTL for analytics queries
-- **SSE**: Redis pub/sub for horizontal scaling
+- **Connection pooling**: Drizzle + PostgreSQL for sustainable throughput
+- **Atomic operations**: Redis MULTI/EXPIRE NX pipeline (prevents orphaned keys)
+- **SSE limits**: Max 100 concurrent connections (503 if exceeded)
+- **Export limits**: Max 10,000 rows per request with truncation indicator headers
+- **Rate limiting**: Fixed-window atomic Redis operations (no TOCTOU race)
+- **Service modularity**: Split analytics into 3 focused services with backward-compatible re-exports
+- **Query performance**: Indexed on feature, model, timestamp for fast lookups
 
 ### Web
-- **Code splitting**: Next.js automatic
+- **Code splitting**: Next.js automatic, lazy-loaded charts
 - **Client caching**: TanStack Query (5min stale time)
-- **Lazy loading**: Dynamic imports for charts
+- **Time range refresh**: Auto-updated every 60 seconds on client
+- **SSE reconnection**: Exponential backoff (max 10 retries, 1s→30s cap)
+- **Export UX**: Non-blocking inline toast (not alert)
+- **SSE snapshot**: Server sends current total cost on connect
 
 ## Security Practices
 
 ### Input Validation
-- All API inputs validated via Zod schemas
-- SQL injection prevented by Drizzle parameterization
-- XSS prevention via React auto-escaping
+```typescript
+// All API inputs validated via Zod schemas
+import { validateQuery, validateRequest } from './middleware/request-validator.js';
+
+router.post('/events', validateRequest(EventSchema), async (req, res) => {
+  // req.body is type-safe after validation
+  const { feature, model, inputTokens } = req.body;
+});
+```
+
+### SQL Injection Prevention
+```typescript
+// All Drizzle queries are parameterized automatically
+// Never use string interpolation for user input
+const safeQuery = db.select().from(events).where(eq(events.id, userId)); // GOOD
+
+// For raw SQL, whitelist guard enum values
+const GRANULARITY_VALUES = ['hour', 'day', 'week'] as const;
+if (!GRANULARITY_VALUES.includes(granularity)) {
+  throw new Error('Invalid granularity');
+}
+// Only then use sql.raw()
+const result = await db.execute(
+  sql`SELECT ... GROUP BY DATE_TRUNC('${sql.raw(granularity)}', created_at)`
+);
+```
+
+### Rate Limiting
+```typescript
+// Atomic Redis pipeline prevents race conditions
+const rateLimiter = createRateLimiter({
+  windowMs: 60_000,
+  maxRequests: 100,
+});
+
+app.post('/api/v1/events', rateLimiter, async (req, res) => {
+  // Enforced with atomic MULTI/EXPIRE NX
+});
+```
 
 ### Middleware
 ```typescript
@@ -303,6 +394,9 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   credentials: true,
 }));
+
+// XSS prevention via React auto-escaping
+// All user data displayed in JSX is automatically escaped
 ```
 
 ## Build & Deploy

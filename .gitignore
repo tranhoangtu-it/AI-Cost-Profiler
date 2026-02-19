@@ -4,11 +4,13 @@ dist/
 .turbo/
 .env
 .env.local
+.env.*.local
 *.tsbuildinfo
 .DS_Store
 CLAUDE.md
 .idea/
 .vscode/
+.vercel/
 *.log
 *.lock
 coverage/
@@ -20,4 +22,9 @@ coverage/
 *.swp
 *.swo
 *.swn
+*.db
+*.db-shm
+*.db-wal
+storybook-static/
+playwright-report/
 repomix-output.xml

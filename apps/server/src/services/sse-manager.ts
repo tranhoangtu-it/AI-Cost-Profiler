@@ -8,11 +8,19 @@ import { logger } from '../middleware/error-handler.js';
 class SSEManager {
   private clients: Set<Response> = new Set();
   private isSubscribed = false;
+  private readonly maxClients = 100;
 
   /**
    * Add SSE client and send initial connection message
    */
   async addClient(res: Response): Promise<void> {
+    // Reject if at capacity
+    if (this.clients.size >= this.maxClients) {
+      logger.warn({ activeClients: this.clients.size, maxClients: this.maxClients }, 'SSE connection limit reached');
+      res.status(503).json({ error: 'Too many SSE connections' });
+      return;
+    }
+
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');

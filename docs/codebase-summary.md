@@ -2,11 +2,14 @@
 
 ## Project Metrics
 
-- **Total TypeScript Files**: 60 (24 in packages, 16 in server, 20 in web)
-- **Test Files**: 151 (102 passing tests)
+- **Total LOC**: 8,322 TypeScript (5,867 source + 1,660 tests)
+- **Supported Models**: 16 (6 OpenAI + 4 Anthropic + 6 Gemini)
+- **API Endpoints**: 8 public routes (v1)
+- **Database Tables**: 5 (events, model_pricing, prompt_embeddings, cost_aggregates, system)
+- **Test Files**: 175 passing tests across shared/sdk/server
 - **Packages**: 2 (`shared`, `sdk`)
 - **Apps**: 2 (`server`, `web`)
-- **Lines of Code**: ~4,000 (excluding tests, configs)
+- **Monorepo Tool**: Turborepo 2.0 + pnpm 9.0
 
 ## Monorepo Structure
 
@@ -57,10 +60,10 @@ packages/shared/src/
 | `utils/id-generator.ts` | ID generation | `generateId()` |
 | `types/index.ts` | TypeScript types | `Event`, `ModelPricing`, `SdkConfig` |
 
-**Model Pricing Database** (13 models):
-- OpenAI: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`, `text-embedding-3-small`, `text-embedding-3-large`
-- Anthropic: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229`, `claude-sonnet-4-20250514`
-- Gemini: `gemini-1.5-pro`, `gemini-1.5-flash`, `gemini-1.0-pro`
+**Model Pricing Database** (16 models):
+- OpenAI (6): `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `gpt-3.5-turbo`, `text-embedding-3-small`, `text-embedding-3-large`
+- Anthropic (4): `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus-20240229`, `claude-sonnet-4-20250514`
+- Gemini (6): `gemini-1.5-pro`, `gemini-1.5-flash`, `gemini-1.0-pro`, `gemini-pro-vision`, `gemini-2.0-flash`, `gemini-2.0-pro`
 
 **Tests** (9 files):
 - `cost-calculator.test.ts` - Cost calculation logic
@@ -76,11 +79,13 @@ packages/shared/src/
 packages/sdk/src/
 ├── providers/
 │   ├── openai-interceptor.ts    # OpenAI Proxy wrapper
-│   └── anthropic-interceptor.ts # Anthropic Proxy wrapper
+│   ├── anthropic-interceptor.ts # Anthropic Proxy wrapper
+│   ├── error-classifier.ts      # Shared error classification
+│   └── gemini-interceptor.ts    # Gemini Proxy wrapper
 ├── transport/
 │   └── event-batcher.ts         # Batch events (10 events/5s)
 ├── utils/
-│   └── detect-provider.ts       # Auto-detect OpenAI/Anthropic
+│   └── detect-provider.ts       # Auto-detect OpenAI/Anthropic/Gemini
 ├── profiler-wrapper.ts          # Main profileAI() API
 └── index.ts                     # Public exports
 ```
@@ -92,10 +97,16 @@ packages/sdk/src/
 | `profiler-wrapper.ts` | Main API entry point | `profileAI(client, config)` |
 | `providers/openai-interceptor.ts` | OpenAI wrapper | `createOpenAIInterceptor()` |
 | `providers/anthropic-interceptor.ts` | Anthropic wrapper | `createAnthropicInterceptor()` |
+| `providers/gemini-interceptor.ts` | Gemini wrapper | `createGeminiInterceptor()` |
+| `providers/error-classifier.ts` | Shared error classification | `classifyApiError()` |
 | `transport/event-batcher.ts` | Event batching | `EventBatcher` class |
 | `utils/detect-provider.ts` | Provider detection | `detectProvider(client)` |
 
-**Design Pattern**: Proxy pattern for transparent client wrapping.
+**Design Patterns**:
+- **Proxy Pattern**: Transparent LLM client wrapping
+- **Error Classification**: Shared `classifyApiError()` maps provider errors to standard codes (rate_limit, timeout, server_error, invalid_request, unknown_error)
+- **Stream Handling**: Anthropic emits single event at stream end (not per-delta); mid-stream errors trigger callbacks
+- **Supported Providers**: OpenAI, Anthropic, Gemini (both SDK variants)
 
 **Usage**:
 ```typescript
@@ -127,15 +138,21 @@ apps/server/src/
 │   └── redis.ts                 # Redis client
 ├── middleware/
 │   ├── request-validator.ts     # Zod validation middleware
-│   └── error-handler.ts         # Global error handler
+│   ├── error-handler.ts         # Global error handler
+│   └── rate-limiter.ts          # Fixed-window rate limiter (atomic Redis MULTI)
 ├── routes/
 │   ├── event-routes.ts          # POST /api/v1/events
 │   ├── analytics-routes.ts      # GET /api/v1/analytics/*
-│   └── stream-routes.ts         # GET /api/v1/stream/events
+│   ├── stream-routes.ts         # GET /api/v1/stream/events
+│   └── export-routes.ts         # GET /api/v1/export/* (CSV/JSON)
 ├── services/
 │   ├── event-processor.ts       # Event storage + broadcast
-│   ├── analytics-service.ts     # Analytics queries
-│   └── sse-manager.ts           # SSE connection manager
+│   ├── analytics-service.ts     # Analytics queries (re-exports split services)
+│   ├── cost-breakdown-service.ts# Cost breakdown logic
+│   ├── flamegraph-service.ts    # Flamegraph data aggregation
+│   ├── timeseries-service.ts    # Time-series data aggregation
+│   ├── sse-manager.ts           # SSE connection manager (maxClients=100)
+│   └── prompt-similarity-service.ts # Prompt embedding + similarity
 ├── app.ts                       # Express app factory
 └── index.ts                     # Server entry point
 ```
@@ -144,16 +161,21 @@ apps/server/src/
 
 | File | Purpose | Endpoints/Functions |
 |------|---------|---------------------|
-| `routes/event-routes.ts` | Event ingestion | `POST /api/v1/events` |
-| `routes/analytics-routes.ts` | Analytics API | `GET /cost-breakdown`, `/flamegraph`, `/timeseries`, `/prompts` |
-| `routes/stream-routes.ts` | SSE streaming | `GET /api/v1/stream/events` |
+| `routes/event-routes.ts` | Event ingestion | `POST /api/v1/events` (batch up to 500) |
+| `routes/analytics-routes.ts` | Analytics API | `GET /cost-breakdown`, `/flamegraph`, `/timeseries`, `/prompts`, `/realtime-totals` |
+| `routes/stream-routes.ts` | SSE streaming | `GET /api/v1/stream/events` (SSE snapshot + incremental) |
+| `routes/export-routes.ts` | Data export | `GET /export/events`, `/export/cost-summary` (CSV/JSON, max 10k rows) |
 | `services/event-processor.ts` | Event processing | `processEvents()`, `broadcastEvent()` |
-| `services/analytics-service.ts` | Analytics queries | `getCostBreakdown()`, `getFlamegraph()`, `getTimeseries()` |
-| `services/sse-manager.ts` | SSE lifecycle | `SSEManager` class |
+| `services/analytics-service.ts` | Analytics queries | Re-exports split services for backward compatibility |
+| `services/cost-breakdown-service.ts` | Cost breakdown | `getCostBreakdown()` |
+| `services/flamegraph-service.ts` | Flamegraph data | `getFlamegraphData()` |
+| `services/timeseries-service.ts` | Time-series data | `getTimeseries()` |
+| `services/sse-manager.ts` | SSE lifecycle | `SSEManager` class (connection limit: 100) |
 | `db/schema.ts` | Database schema | `events` table definition |
 
 **Database Schema** (Drizzle ORM):
 ```typescript
+// Main events table
 export const events = pgTable('events', {
   id: text('id').primaryKey(),
   feature: text('feature').notNull(),
@@ -165,7 +187,17 @@ export const events = pgTable('events', {
   timestamp: timestamp('timestamp').notNull(),
   metadata: jsonb('metadata'),
 });
+
+// Additional tables
+export const modelPricing = pgTable('model_pricing', {...});
+export const promptEmbeddings = pgTable('prompt_embeddings', {...});  // pgvector
+export const costAggregates = pgTable('cost_aggregates', {...});
 ```
+
+**Indexes** (for query performance):
+- `events_feature_idx` on feature
+- `events_model_idx` on model
+- `events_timestamp_idx` on timestamp (critical for time-series)
 
 **Tests** (16 files):
 - `event-routes.test.ts` - Event ingestion tests
@@ -206,15 +238,16 @@ apps/web/src/
     └── utils.ts                  # Utility functions
 ```
 
-**Key Pages**:
+**Key Pages** (6 dashboard routes):
 
 | Page | Purpose | Visualizations |
 |------|---------|----------------|
-| `overview/page.tsx` | Cost dashboard | Total cost, model pie chart, timeseries |
-| `features/page.tsx` | Feature breakdown | Treemap, bar chart, cost table |
-| `flamegraph/page.tsx` | Hierarchical view | d3-flame-graph |
-| `prompts/page.tsx` | Prompt inspector | Token analysis, prompt list |
-| `realtime/page.tsx` | Live feed | SSE event stream, real-time counter |
+| `overview/page.tsx` | Cost dashboard | Total spend, model pie chart, 24h timeseries, top features |
+| `features/page.tsx` | Feature breakdown | Treemap, bar chart, sortable table by cost/count |
+| `flamegraph/page.tsx` | Hierarchical view | d3-flame-graph (Provider→Model→Feature) |
+| `models/page.tsx` | Model comparison | Cost distribution, sortable table, % breakdown |
+| `prompts/page.tsx` | Prompt inspector | Token bloat analysis, similarity clustering, prompt list |
+| `realtime/page.tsx` | Live feed | SSE event stream, live cost counter, exponential backoff reconnection |
 
 **Chart Libraries**:
 - **Recharts**: Line charts, bar charts, pie charts
@@ -386,21 +419,27 @@ pnpm test:smoke               # SDK → Server smoke test
 ### Git Hooks
 - No pre-commit hooks in MVP
 
+## Recent Improvements (v1.0)
+
+1. **Security** (Critical): SQL injection prevention - all export routes use parameterized Drizzle queries; comprehensive Zod validation for date formats
+2. **SDK**: Shared `error-classifier.ts` maps provider errors to standard codes; Anthropic streaming emits single event at completion; mid-stream error callbacks added
+3. **Backend**: Rate limiter uses atomic Redis MULTI/EXPIRE NX pipeline (no TOCTOU); SSE enforces maxClients=100 (503 if exceeded); analytics modularized into 3 focused services with re-exports
+4. **Frontend**: Time range auto-refreshes every 60s; export errors shown via non-blocking toast; sidebar nav uses exact path matching; SSE reconnection with exponential backoff (max 10 retries, cap 30s)
+5. **Export Limits**: Enforces 10K row limit per request with truncation indicator headers
+6. **Seed Data**: isCacheHit correctly set based on cachedTokens > 0; generates realistic cache hit percentages (~30%)
+
 ## Known Limitations
 
 1. **No Authentication**: Public API endpoints
-2. **No Prompt Similarity**: pgvector embeddings not implemented
-3. **No Multi-Tenancy**: Single workspace
-4. **Provider Support**: OpenAI + Anthropic only (no Gemini SDK wrapper)
-5. **No Alerts**: No cost threshold notifications
-6. **Redis Caching**: Not implemented for analytics queries
+2. **No Multi-Tenancy**: Single workspace
+3. **No Alerts**: No cost threshold notifications
+4. **Storage**: In-memory event history (no long-term archival)
 
 ## Future Enhancements
 
-1. Gemini SDK wrapper
-2. Prompt embeddings + similarity clustering
-3. Cost anomaly detection
-4. Multi-workspace support
-5. Slack/email alerts
-6. Export to CSV/Parquet
-7. Horizontal scaling with read replicas
+1. Multi-workspace support with API key auth
+2. Cost anomaly detection + alerts
+3. Prompt clustering with similarity scores
+4. Data retention policies + archival
+5. Slack/email notifications
+6. Horizontal scaling with read replicas

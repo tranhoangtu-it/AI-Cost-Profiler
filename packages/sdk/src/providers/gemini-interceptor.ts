@@ -6,27 +6,34 @@ import {
 } from '@ai-cost-profiler/shared';
 import type { EventBatcher } from '../transport/event-batcher.js';
 import { wrapGeminiStream } from './streaming-helpers.js';
+import { classifyApiError } from './error-classifier.js';
+
+/** Minimal interface for Gemini GenerativeModel (works with both @google/generative-ai and @google-cloud/vertexai) */
+interface GeminiModel {
+  model?: string;
+  generateContent: (...args: unknown[]) => Promise<unknown>;
+  generateContentStream?: (...args: unknown[]) => Promise<unknown>;
+}
 
 /**
  * Intercept Google Gemini client calls to capture usage and cost metrics
  * Supports both @google/generative-ai and @google-cloud/vertexai SDKs
  */
 export function createGeminiInterceptor(
-  client: any,
+  client: GeminiModel,
   batcher: EventBatcher,
   feature: string,
   userId?: string
-): any {
-  // Detect if this is a GenerativeModel instance or VertexAI client
+): GeminiModel {
   const isModel = typeof client.generateContent === 'function';
 
   if (!isModel) {
-    // If it's a client wrapper, we need to intercept getGenerativeModel()
+    // If it's a client wrapper, intercept getGenerativeModel()
     return new Proxy(client, {
       get(target, prop) {
         if (prop === 'getGenerativeModel') {
-          return (...args: any[]) => {
-            const model = target.getGenerativeModel(...args);
+          return (...args: unknown[]) => {
+            const model = (target as any).getGenerativeModel(...args);
             return createGeminiInterceptor(model, batcher, feature, userId);
           };
         }
@@ -35,11 +42,10 @@ export function createGeminiInterceptor(
     });
   }
 
-  // Intercept GenerativeModel instance methods
   return new Proxy(client, {
     get(target, prop) {
       if (prop === 'generateContent') {
-        return async (...args: any[]) => {
+        return async (...args: unknown[]) => {
           const startTime = performance.now();
           const traceId = generateTraceId();
           const spanId = generateSpanId();
@@ -49,8 +55,7 @@ export function createGeminiInterceptor(
             const endTime = performance.now();
             const latencyMs = Math.round(endTime - startTime);
 
-            // Extract usage from response
-            const usage = result.response?.usageMetadata;
+            const usage = (result as any).response?.usageMetadata;
             if (usage) {
               const inputTokens = usage.promptTokenCount ?? 0;
               const outputTokens = usage.candidatesTokenCount ?? 0;
@@ -68,12 +73,7 @@ export function createGeminiInterceptor(
                 outputTokens,
                 cachedTokens,
                 latencyMs,
-                estimatedCostUsd: calculateCost(
-                  modelName,
-                  inputTokens,
-                  outputTokens,
-                  cachedTokens
-                ),
+                estimatedCostUsd: calculateCost(modelName, inputTokens, outputTokens, cachedTokens),
                 timestamp: new Date().toISOString(),
                 isStreaming: false,
                 retryCount: 0,
@@ -85,12 +85,9 @@ export function createGeminiInterceptor(
 
             return result;
           } catch (error) {
-            // Track failed calls
             const endTime = performance.now();
             const latencyMs = Math.round(endTime - startTime);
             const modelName = target.model ?? 'gemini-1.5-flash';
-
-            const errorCode = classifyGeminiError(error);
 
             const event: LlmEvent = {
               traceId,
@@ -108,10 +105,8 @@ export function createGeminiInterceptor(
               isStreaming: false,
               retryCount: 0,
               isError: true,
-              errorCode,
-              metadata: {
-                error: error instanceof Error ? error.message : String(error),
-              },
+              errorCode: classifyApiError(error),
+              metadata: { error: error instanceof Error ? error.message : String(error) },
             };
 
             batcher.add(event);
@@ -121,57 +116,75 @@ export function createGeminiInterceptor(
       }
 
       if (prop === 'generateContentStream') {
-        return async (...args: any[]) => {
+        return async (...args: unknown[]) => {
           const startTime = performance.now();
           const traceId = generateTraceId();
           const spanId = generateSpanId();
 
           try {
-            const streamResult = await target.generateContentStream(...args);
+            const streamResult = await target.generateContentStream!(...args);
             const modelName = target.model ?? 'gemini-1.5-flash';
 
-            const wrappedStream = wrapGeminiStream(streamResult, (usage) => {
-              const endTime = performance.now();
-              const latencyMs = Math.round(endTime - startTime);
+            return wrapGeminiStream(
+              streamResult as any,
+              (usage) => {
+                const endTime = performance.now();
+                const latencyMs = Math.round(endTime - startTime);
 
-              const inputTokens = usage.promptTokenCount ?? 0;
-              const outputTokens = usage.candidatesTokenCount ?? 0;
-              const cachedTokens = usage.cachedContentTokenCount ?? 0;
+                const inputTokens = usage.promptTokenCount ?? 0;
+                const outputTokens = usage.candidatesTokenCount ?? 0;
 
-              const event: LlmEvent = {
-                traceId,
-                spanId,
-                feature,
-                userId,
-                provider: 'google-gemini',
-                model: modelName,
-                inputTokens,
-                outputTokens,
-                cachedTokens,
-                latencyMs,
-                estimatedCostUsd: calculateCost(
-                  modelName,
+                const event: LlmEvent = {
+                  traceId,
+                  spanId,
+                  feature,
+                  userId,
+                  provider: 'google-gemini',
+                  model: modelName,
                   inputTokens,
                   outputTokens,
-                  cachedTokens
-                ),
-                timestamp: new Date().toISOString(),
-                isStreaming: true,
-                retryCount: 0,
-                isError: false,
-              };
+                  cachedTokens: 0,
+                  latencyMs,
+                  estimatedCostUsd: calculateCost(modelName, inputTokens, outputTokens, 0),
+                  timestamp: new Date().toISOString(),
+                  isStreaming: true,
+                  retryCount: 0,
+                  isError: false,
+                };
 
-              batcher.add(event);
-            });
+                batcher.add(event);
+              },
+              (error) => {
+                const endTime = performance.now();
+                const latencyMs = Math.round(endTime - startTime);
 
-            return wrappedStream;
+                const event: LlmEvent = {
+                  traceId,
+                  spanId,
+                  feature,
+                  userId,
+                  provider: 'google-gemini',
+                  model: modelName,
+                  inputTokens: 0,
+                  outputTokens: 0,
+                  cachedTokens: 0,
+                  latencyMs,
+                  estimatedCostUsd: 0,
+                  timestamp: new Date().toISOString(),
+                  isStreaming: true,
+                  retryCount: 0,
+                  isError: true,
+                  errorCode: classifyApiError(error),
+                  metadata: { error: error instanceof Error ? error.message : String(error) },
+                };
+
+                batcher.add(event);
+              }
+            );
           } catch (error) {
-            // Track failed streaming calls
             const endTime = performance.now();
             const latencyMs = Math.round(endTime - startTime);
             const modelName = target.model ?? 'gemini-1.5-flash';
-
-            const errorCode = classifyGeminiError(error);
 
             const event: LlmEvent = {
               traceId,
@@ -189,10 +202,8 @@ export function createGeminiInterceptor(
               isStreaming: true,
               retryCount: 0,
               isError: true,
-              errorCode,
-              metadata: {
-                error: error instanceof Error ? error.message : String(error),
-              },
+              errorCode: classifyApiError(error),
+              metadata: { error: error instanceof Error ? error.message : String(error) },
             };
 
             batcher.add(event);
@@ -204,23 +215,4 @@ export function createGeminiInterceptor(
       return Reflect.get(target, prop);
     },
   });
-}
-
-/**
- * Classify Gemini API errors into standard error codes
- */
-function classifyGeminiError(error: any): string {
-  if (error.status === 429 || error.message?.includes('RESOURCE_EXHAUSTED')) {
-    return 'rate_limit';
-  }
-  if (error.status === 503 || error.message?.includes('UNAVAILABLE')) {
-    return 'server_error';
-  }
-  if (error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) {
-    return 'timeout';
-  }
-  if (error.status === 400 || error.message?.includes('INVALID_ARGUMENT')) {
-    return 'invalid_request';
-  }
-  return 'unknown_error';
 }

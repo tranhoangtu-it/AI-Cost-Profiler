@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { formatCost } from '@/lib/utils';
 
 interface RealtimeEvent {
@@ -12,19 +12,27 @@ interface RealtimeEvent {
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3100';
+const MAX_RETRIES = 10;
 
 export function RealtimeFeed() {
   const [events, setEvents] = useState<RealtimeEvent[]>([]);
   const [totalCost, setTotalCost] = useState(0);
   const [connected, setConnected] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const retryRef = useRef(0);
+  const esRef = useRef<EventSource | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    const eventSource = new EventSource(`${API_BASE}/api/v1/stream/costs`);
+  const connect = useCallback(() => {
+    const es = new EventSource(`${API_BASE}/api/v1/stream/costs`);
+    esRef.current = es;
 
-    eventSource.onopen = () => setConnected(true);
+    es.onopen = () => {
+      setConnected(true);
+      retryRef.current = 0;
+    };
 
-    eventSource.onmessage = (event) => {
+    es.onmessage = (event) => {
       const data: RealtimeEvent = JSON.parse(event.data);
       if (data.type === 'snapshot') {
         setTotalCost(data.totalCost);
@@ -34,13 +42,25 @@ export function RealtimeFeed() {
       }
     };
 
-    eventSource.onerror = () => {
+    es.onerror = () => {
       setConnected(false);
-      eventSource.close();
-    };
+      es.close();
 
-    return () => eventSource.close();
+      if (retryRef.current < MAX_RETRIES) {
+        const delay = Math.min(1000 * Math.pow(2, retryRef.current), 30_000);
+        retryRef.current++;
+        timeoutRef.current = setTimeout(connect, delay);
+      }
+    };
   }, []);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      esRef.current?.close();
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [connect]);
 
   return (
     <div>

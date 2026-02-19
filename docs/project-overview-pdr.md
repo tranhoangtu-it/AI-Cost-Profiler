@@ -190,10 +190,9 @@ NEXT_PUBLIC_API_URL=http://localhost:3100
 ## Known Limitations (MVP)
 
 1. **No Authentication**: Public API endpoints
-2. **No Prompt Similarity**: pgvector embeddings not implemented
-3. **No Multi-Tenancy**: Single workspace
-4. **Provider Support**: OpenAI + Anthropic only (no Gemini SDK wrapper)
-5. **No Alerts**: No cost threshold notifications
+2. **No Multi-Tenancy**: Single workspace
+3. **No Alerts**: No cost threshold notifications
+4. **Web Frontend Tests**: apps/web has no test suite yet (focus on API/SDK testing)
 
 ## Success Metrics
 

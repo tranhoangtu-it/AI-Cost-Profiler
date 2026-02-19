@@ -7,6 +7,7 @@ import {
 } from '@ai-cost-profiler/shared';
 import type { EventBatcher } from '../transport/event-batcher.js';
 import { wrapOpenAIStream } from './streaming-helpers.js';
+import { classifyApiError } from './error-classifier.js';
 
 /**
  * Intercept OpenAI client calls to capture usage and cost metrics
@@ -46,39 +47,63 @@ export function createOpenAIInterceptor(
                         if (isStreaming) {
                           const model = params?.model ?? 'unknown';
 
-                          return wrapOpenAIStream(response as any, (usage) => {
-                            const endTime = performance.now();
-                            const latencyMs = Math.round(endTime - startTime);
+                          return wrapOpenAIStream(
+                            response as any,
+                            (usage) => {
+                              const endTime = performance.now();
+                              const latencyMs = Math.round(endTime - startTime);
 
-                            const inputTokens = usage.prompt_tokens ?? 0;
-                            const outputTokens = usage.completion_tokens ?? 0;
-                            const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
+                              const inputTokens = usage.prompt_tokens ?? 0;
+                              const outputTokens = usage.completion_tokens ?? 0;
+                              const cachedTokens = usage.prompt_tokens_details?.cached_tokens ?? 0;
 
-                            const event: LlmEvent = {
-                              traceId,
-                              spanId,
-                              feature,
-                              userId,
-                              provider: 'openai',
-                              model,
-                              inputTokens,
-                              outputTokens,
-                              cachedTokens,
-                              latencyMs,
-                              estimatedCostUsd: calculateCost(
+                              const event: LlmEvent = {
+                                traceId,
+                                spanId,
+                                feature,
+                                userId,
+                                provider: 'openai',
                                 model,
                                 inputTokens,
                                 outputTokens,
-                                cachedTokens
-                              ),
-                              timestamp: new Date().toISOString(),
-                              isStreaming: true,
-                              retryCount: 0,
-                              isError: false,
-                            };
+                                cachedTokens,
+                                latencyMs,
+                                estimatedCostUsd: calculateCost(model, inputTokens, outputTokens, cachedTokens),
+                                timestamp: new Date().toISOString(),
+                                isStreaming: true,
+                                retryCount: 0,
+                                isError: false,
+                              };
 
-                            batcher.add(event);
-                          });
+                              batcher.add(event);
+                            },
+                            (error) => {
+                              const endTime = performance.now();
+                              const latencyMs = Math.round(endTime - startTime);
+
+                              const event: LlmEvent = {
+                                traceId,
+                                spanId,
+                                feature,
+                                userId,
+                                provider: 'openai',
+                                model,
+                                inputTokens: 0,
+                                outputTokens: 0,
+                                cachedTokens: 0,
+                                latencyMs,
+                                estimatedCostUsd: 0,
+                                timestamp: new Date().toISOString(),
+                                isStreaming: true,
+                                retryCount: 0,
+                                isError: true,
+                                errorCode: classifyApiError(error),
+                                metadata: { error: error instanceof Error ? error.message : String(error) },
+                              };
+
+                              batcher.add(event);
+                            }
+                          );
                         }
 
                         // Handle non-streaming response
@@ -129,7 +154,7 @@ export function createOpenAIInterceptor(
                         const model = params?.model ?? 'unknown';
                         const isStreaming = params?.stream === true;
 
-                        const errorCode = classifyOpenAIError(error);
+                        const errorCode = classifyApiError(error);
 
                         const event: LlmEvent = {
                           traceId,
@@ -171,21 +196,3 @@ export function createOpenAIInterceptor(
   });
 }
 
-/**
- * Classify OpenAI API errors into standard error codes
- */
-function classifyOpenAIError(error: any): string {
-  if (error.status === 429) {
-    return 'rate_limit';
-  }
-  if (error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) {
-    return 'timeout';
-  }
-  if (error.status && error.status >= 500) {
-    return 'server_error';
-  }
-  if (error.status === 400 || error.status === 401 || error.status === 403) {
-    return 'invalid_request';
-  }
-  return 'unknown_error';
-}

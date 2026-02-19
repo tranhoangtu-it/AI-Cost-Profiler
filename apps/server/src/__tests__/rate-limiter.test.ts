@@ -3,6 +3,19 @@ import { createRateLimiter } from '../middleware/rate-limiter.js';
 import { redis } from '../lib/redis.js';
 import type { Request, Response, NextFunction } from 'express';
 
+/**
+ * Helper: create a mock multi chain that returns a specific count from INCR
+ */
+function mockMultiWithCount(count: number) {
+  const multiChain = {
+    incr: vi.fn().mockReturnThis(),
+    expire: vi.fn().mockReturnThis(),
+    exec: vi.fn().mockResolvedValue([[null, count], [null, 1]]),
+  };
+  vi.mocked(redis.multi).mockReturnValue(multiChain as any);
+  return multiChain;
+}
+
 describe('Rate Limiter', () => {
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
@@ -26,7 +39,7 @@ describe('Rate Limiter', () => {
   });
 
   it('should allow requests under limit', async () => {
-    vi.mocked(redis.incr).mockResolvedValue(5);
+    mockMultiWithCount(5);
     vi.mocked(redis.ttl).mockResolvedValue(60);
 
     const limiter = createRateLimiter({
@@ -42,7 +55,7 @@ describe('Rate Limiter', () => {
   });
 
   it('should block requests over limit with 429 status', async () => {
-    vi.mocked(redis.incr).mockResolvedValue(101);
+    mockMultiWithCount(101);
     vi.mocked(redis.ttl).mockResolvedValue(30);
 
     const limiter = createRateLimiter({
@@ -63,7 +76,7 @@ describe('Rate Limiter', () => {
   });
 
   it('should set rate limit headers', async () => {
-    vi.mocked(redis.incr).mockResolvedValue(25);
+    mockMultiWithCount(25);
     vi.mocked(redis.ttl).mockResolvedValue(45);
 
     const limiter = createRateLimiter({
@@ -80,7 +93,7 @@ describe('Rate Limiter', () => {
   });
 
   it('should set remaining to 0 when over limit', async () => {
-    vi.mocked(redis.incr).mockResolvedValue(150);
+    mockMultiWithCount(150);
     vi.mocked(redis.ttl).mockResolvedValue(30);
 
     const limiter = createRateLimiter({
@@ -94,8 +107,8 @@ describe('Rate Limiter', () => {
     expect(mockRes.setHeader).toHaveBeenCalledWith('X-RateLimit-Remaining', '0');
   });
 
-  it('should set TTL on first request', async () => {
-    vi.mocked(redis.incr).mockResolvedValue(1);
+  it('should use atomic INCR+EXPIRE via multi pipeline', async () => {
+    const multiChain = mockMultiWithCount(1);
     vi.mocked(redis.ttl).mockResolvedValue(60);
 
     const limiter = createRateLimiter({
@@ -106,26 +119,15 @@ describe('Rate Limiter', () => {
 
     await limiter(mockReq as Request, mockRes as Response, mockNext);
 
-    expect(redis.expire).toHaveBeenCalledWith(expect.stringContaining('test:'), 60);
-  });
-
-  it('should not set TTL on subsequent requests', async () => {
-    vi.mocked(redis.incr).mockResolvedValue(5);
-    vi.mocked(redis.ttl).mockResolvedValue(55);
-
-    const limiter = createRateLimiter({
-      limit: 100,
-      windowSeconds: 60,
-      keyPrefix: 'test',
-    });
-
-    await limiter(mockReq as Request, mockRes as Response, mockNext);
-
-    expect(redis.expire).not.toHaveBeenCalled();
+    // Verify multi() was called with both incr and expire atomically
+    expect(redis.multi).toHaveBeenCalled();
+    expect(multiChain.incr).toHaveBeenCalledWith('test:127.0.0.1');
+    expect(multiChain.expire).toHaveBeenCalledWith('test:127.0.0.1', 60, 'NX');
+    expect(multiChain.exec).toHaveBeenCalled();
   });
 
   it('should extract IP from x-forwarded-for header', async () => {
-    vi.mocked(redis.incr).mockResolvedValue(1);
+    const multiChain = mockMultiWithCount(1);
     vi.mocked(redis.ttl).mockResolvedValue(60);
 
     mockReq.headers = { 'x-forwarded-for': '203.0.113.1, 198.51.100.1' };
@@ -138,11 +140,11 @@ describe('Rate Limiter', () => {
 
     await limiter(mockReq as Request, mockRes as Response, mockNext);
 
-    expect(redis.incr).toHaveBeenCalledWith('test:203.0.113.1');
+    expect(multiChain.incr).toHaveBeenCalledWith('test:203.0.113.1');
   });
 
   it('should use socket address when x-forwarded-for is missing', async () => {
-    vi.mocked(redis.incr).mockResolvedValue(1);
+    const multiChain = mockMultiWithCount(1);
     vi.mocked(redis.ttl).mockResolvedValue(60);
 
     mockReq.socket = { remoteAddress: '192.168.1.100' } as any;
@@ -155,11 +157,13 @@ describe('Rate Limiter', () => {
 
     await limiter(mockReq as Request, mockRes as Response, mockNext);
 
-    expect(redis.incr).toHaveBeenCalledWith('test:192.168.1.100');
+    expect(multiChain.incr).toHaveBeenCalledWith('test:192.168.1.100');
   });
 
   it('should fail open when Redis errors', async () => {
-    vi.mocked(redis.incr).mockRejectedValue(new Error('Redis connection failed'));
+    vi.mocked(redis.multi).mockImplementation(() => {
+      throw new Error('Redis connection failed');
+    });
 
     const limiter = createRateLimiter({
       limit: 100,
@@ -179,7 +183,7 @@ describe('Rate Limiter', () => {
   });
 
   it('should handle unknown IP gracefully', async () => {
-    vi.mocked(redis.incr).mockResolvedValue(1);
+    const multiChain = mockMultiWithCount(1);
     vi.mocked(redis.ttl).mockResolvedValue(60);
 
     mockReq.headers = {};
@@ -193,7 +197,7 @@ describe('Rate Limiter', () => {
 
     await limiter(mockReq as Request, mockRes as Response, mockNext);
 
-    expect(redis.incr).toHaveBeenCalledWith('test:unknown');
+    expect(multiChain.incr).toHaveBeenCalledWith('test:unknown');
     expect(mockNext).toHaveBeenCalled();
   });
 });

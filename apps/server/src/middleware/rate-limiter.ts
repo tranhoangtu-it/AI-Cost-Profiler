@@ -15,25 +15,25 @@ export interface RateLimiterConfig {
 
 /**
  * Redis-based rate limiter middleware
- * Uses sliding window counter with automatic TTL
+ * Uses atomic INCR+EXPIRE pipeline to prevent TOCTOU race conditions
  */
 export function createRateLimiter(config: RateLimiterConfig) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      // Extract IP from request (handle proxies)
       const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
         || req.socket.remoteAddress
         || 'unknown';
 
       const key = `${config.keyPrefix}:${ip}`;
 
-      // Increment counter
-      const count = await redis.incr(key);
+      // Atomic INCR + EXPIRE via pipeline (no TOCTOU race)
+      // Uses fixed-window: TTL only set when key is new (NX flag)
+      const multi = redis.multi();
+      multi.incr(key);
+      multi.expire(key, config.windowSeconds, 'NX');
+      const results = await multi.exec();
 
-      // Set TTL on first request
-      if (count === 1) {
-        await redis.expire(key, config.windowSeconds);
-      }
+      const count = (results?.[0]?.[1] as number) ?? 0;
 
       // Get remaining TTL for retry-after header
       const ttl = await redis.ttl(key);
@@ -43,7 +43,6 @@ export function createRateLimiter(config: RateLimiterConfig) {
       res.setHeader('X-RateLimit-Remaining', Math.max(0, config.limit - count).toString());
       res.setHeader('X-RateLimit-Reset', (Date.now() + ttl * 1000).toString());
 
-      // Check if limit exceeded
       if (count > config.limit) {
         res.status(429).json({
           error: 'Rate limit exceeded',
@@ -55,7 +54,7 @@ export function createRateLimiter(config: RateLimiterConfig) {
 
       next();
     } catch (error) {
-      // Fail open if Redis is down (log but don't block requests)
+      // Fail open if Redis is down
       console.error('Rate limiter error:', error);
       next();
     }

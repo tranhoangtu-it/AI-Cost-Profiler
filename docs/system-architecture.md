@@ -157,16 +157,20 @@ SSE Connection → Redis Subscribe → Event Broadcast → Client Update
 **Components**:
 ```
 profileAI()
-├── detectProvider() → Identifies OpenAI/Anthropic
+├── detectProvider() → Identifies OpenAI/Anthropic/Gemini
 ├── OpenAIInterceptor → Proxy for OpenAI client
 ├── AnthropicInterceptor → Proxy for Anthropic client
+├── GeminiInterceptor → Proxy for Gemini client
+├── classifyApiError() → Shared error classification
 └── EventBatcher → Batches and sends events
 ```
 
 **Key Design Patterns**:
 - **Proxy Pattern**: Transparent LLM client wrapping
-- **Batch Processing**: Reduces HTTP overhead
+- **Batch Processing**: Reduces HTTP overhead (max 10 events or 5s)
 - **Provider Detection**: Auto-detect from client instance
+- **Error Classification**: Unified `classifyApiError()` maps provider errors to standard codes (rate_limit, timeout, server_error, invalid_request, unknown_error)
+- **Stream Handling**: Anthropic streaming emits single event at completion (not per-delta); mid-stream errors trigger callbacks
 
 **Event Schema**:
 ```typescript
@@ -209,18 +213,23 @@ Routes (HTTP) → Services (Business Logic) → ORM (Data Access) → Database
 ```
 
 **Route Handlers**:
-- `event-routes.ts` - POST /events (event ingestion)
+- `event-routes.ts` - POST /events (event ingestion, Zod validated)
 - `analytics-routes.ts` - GET /cost-breakdown, /flamegraph, /timeseries, /prompts
-- `stream-routes.ts` - GET /stream/events (SSE)
+- `stream-routes.ts` - GET /stream/events (SSE with snapshot)
+- `export-routes.ts` - GET /events (CSV/JSON export, max 10,000 rows, rate limited)
 
-**Services**:
-- `event-processor.ts` - Event validation, storage, broadcast
-- `analytics-service.ts` - Query aggregation, transformations
-- `sse-manager.ts` - SSE connection lifecycle, Redis pub/sub
+**Services** (modular architecture):
+- `event-processor.ts` - Event validation, storage, Redis broadcast
+- `analytics-service.ts` - Main re-export module (backward compatible)
+- `cost-breakdown-service.ts` - Cost breakdown by feature/model
+- `flamegraph-service.ts` - Hierarchical cost aggregation
+- `timeseries-service.ts` - Time-series data with configurable granularity
+- `sse-manager.ts` - SSE lifecycle, Redis pub/sub, connection limit (100 clients max)
 
 **Middleware**:
 - `request-validator.ts` - Zod schema validation
-- `error-handler.ts` - Global error handling
+- `error-handler.ts` - Global error handling with logging
+- `rate-limiter.ts` - Fixed-window rate limiter using atomic Redis MULTI/EXPIRE NX
 
 ### Web App (`apps/web`)
 
@@ -304,13 +313,24 @@ export const events = pgTable('events', {
 Channel: "events"
 Publisher: EventProcessor (on new event insert)
 Subscribers: SSE clients via SSEManager
+Pattern: SSE snapshot (total cost) on connect, incremental updates on new events
 ```
 
-### Caching (Analytics) - Not Yet Implemented
+### Real-time Totals
 ```
-Key Pattern: "analytics:{endpoint}:{params_hash}"
-TTL: 5 minutes
-Invalidation: Manual on new events
+Keys:
+  - realtime:total_cost
+  - realtime:total_requests
+  - realtime:total_tokens
+Update: EventProcessor increments atomically on each event
+Access: SSEManager sends snapshot on connect
+```
+
+### Rate Limiting
+```
+Key Pattern: "ratelimit:{identifier}:{window}"
+Implementation: Atomic MULTI pipeline with EXPIRE NX
+Prevents: TOCTOU race condition with precise window enforcement
 ```
 
 ## API Design
@@ -321,8 +341,10 @@ Invalidation: Manual on new events
 ```
 POST /api/v1/events
 Content-Type: application/json
+Rate-Limited: Yes (atomic Redis fixed-window)
 
-Body: {
+Body (array of 1-500 events):
+{
   id: string,
   feature: string,
   model: string,
@@ -331,10 +353,13 @@ Body: {
   totalCost: number,
   latency: number,
   timestamp: string (ISO 8601),
+  cachedInputTokens?: number,
+  cachedOutputTokens?: number,
+  provider?: string,
   metadata?: Record<string, unknown>
 }
 
-Response: 201 Created
+Response: 201 Created | 400 Validation Error | 429 Rate Limited
 ```
 
 **Cost Breakdown**:
@@ -362,34 +387,72 @@ Response: {
 **Time-series**:
 ```
 GET /api/v1/analytics/timeseries
-Query: interval=hourly|daily
+Query: from, to, granularity=hour|day|week (required)
 
 Response: {
-  timeseries: [{ timestamp, totalCost, callCount }]
+  timeseries: [{
+    timestamp: ISO8601,
+    totalCost: number,
+    callCount: number,
+    avgLatency: number,
+    avgCostPerCall: number
+  }]
 }
 ```
 
 **SSE Stream**:
 ```
-GET /api/v1/stream/events
+GET /api/v1/stream/costs
 Accept: text/event-stream
 
-Stream: data: {...event...}\n\n
+Initial: data: {"type":"snapshot","totalCost":123.45}\n\n
+Updates: data: {"type":"event","...event data...}\n\n
+Limit: Max 100 concurrent connections (returns 503 if exceeded)
+Reconnection: Exponential backoff (max 10 retries, cap 30s)
+```
+
+**Data Export**:
+```
+GET /api/v1/export/events
+Query: format=csv|json, from, to, feature?, model?, provider?
+Rate-Limited: Yes
+
+Response: CSV/JSON with up to 10,000 rows
+Headers:
+  X-Export-Row-Limit: 10000
+  X-Export-Truncated: true|false (indicates if more rows exist)
+```
+
+**Data Export**:
+```
+GET /api/v1/export/events
+Query: format=csv|json, startDate=, endDate=, feature=, model=, provider=
+
+Response: CSV/JSON with up to 10,000 rows
+Headers: X-Export-Row-Limit: 10000, X-Export-Truncated: true|false
 ```
 
 ## Security Architecture
 
-### MVP (No Auth)
-- Public API endpoints
-- CORS configurable via `CORS_ORIGIN` env
-- Helmet middleware for security headers
-- Input validation via Zod schemas
+### MVP (v1.0 - Hardened)
+- Public API endpoints (no auth required)
+- CORS configurable via `CORS_ORIGIN` env var
+- Helmet middleware for security headers (CSP disabled for SSE)
+- Input validation via Zod schemas (all endpoints)
+- SQL injection prevention: Parameterized Drizzle queries + whitelist guards for raw SQL
+- Rate limiting: Atomic Redis MULTI pipeline (fixed-window, no orphaned keys)
+- Rate limit enforcement: 429 response, per-IP or per-endpoint
+- SSE limits: 100 concurrent connections (503 if exceeded)
+- Export limits: 10K rows max (prevents OOM attacks)
+- XSS prevention: React auto-escaping + no innerHTML usage
 
-### Future (Production)
+### Future (Production - v2.0)
 - API key authentication
-- Rate limiting per workspace
+- Per-workspace rate limiting
 - Row-level security (multi-tenancy)
-- Audit logging
+- Audit logging + access logs
+- WAF integration
+- DDoS protection
 
 ## Performance Optimizations
 

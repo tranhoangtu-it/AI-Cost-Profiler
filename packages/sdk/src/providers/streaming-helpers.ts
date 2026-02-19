@@ -13,41 +13,61 @@ export async function* wrapOpenAIStream<T extends AsyncIterable<any>>(
     prompt_tokens: number;
     completion_tokens: number;
     prompt_tokens_details?: { cached_tokens?: number };
-  }) => void
+  }) => void,
+  onError?: (error: unknown) => void
 ): AsyncIterableIterator<any> {
-  for await (const chunk of originalStream) {
-    yield chunk;
+  try {
+    for await (const chunk of originalStream) {
+      yield chunk;
 
-    // Final chunk contains usage data
-    if (chunk.usage) {
-      onComplete(chunk.usage);
+      // Final chunk contains usage data
+      if (chunk.usage) {
+        onComplete(chunk.usage);
+      }
     }
+  } catch (error) {
+    onError?.(error);
+    throw error;
   }
 }
 
 /**
  * Wrap Anthropic streaming response to capture token usage from events
- * Tokens arrive in message_start (input) and message_delta (output) events
+ * Accumulates tokens and emits a single onComplete at stream end
  */
 export async function* wrapAnthropicStream<T extends AsyncIterable<any>>(
   originalStream: T,
-  onStart: (usage: {
+  onComplete: (usage: {
     input_tokens: number;
-    cache_creation_input_tokens?: number;
-    cache_read_input_tokens?: number;
+    output_tokens: number;
+    cache_read_input_tokens: number;
   }) => void,
-  onDelta: (usage: { output_tokens: number }) => void
+  onError?: (error: unknown) => void
 ): AsyncIterableIterator<any> {
-  for await (const event of originalStream) {
-    yield event;
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
 
-    if (event.type === 'message_start') {
-      onStart(event.message.usage);
+  try {
+    for await (const event of originalStream) {
+      yield event;
+
+      if (event.type === 'message_start') {
+        inputTokens = event.message.usage?.input_tokens ?? 0;
+        cacheReadTokens = event.message.usage?.cache_read_input_tokens ?? 0;
+      }
+
+      // Accumulate output tokens from message_delta (Anthropic sends cumulative values)
+      if (event.type === 'message_delta') {
+        outputTokens = event.usage?.output_tokens ?? outputTokens;
+      }
     }
 
-    if (event.type === 'message_delta') {
-      onDelta(event.usage);
-    }
+    // Emit once after stream completes
+    onComplete({ input_tokens: inputTokens, output_tokens: outputTokens, cache_read_input_tokens: cacheReadTokens });
+  } catch (error) {
+    onError?.(error);
+    throw error;
   }
 }
 
@@ -64,20 +84,26 @@ export function wrapGeminiStream(
     promptTokenCount: number;
     candidatesTokenCount: number;
     totalTokenCount: number;
-  }) => void
+  }) => void,
+  onError?: (error: unknown) => void
 ): {
   stream: AsyncIterableIterator<any>;
   response: Promise<any>;
 } {
   async function* wrappedStream() {
-    for await (const chunk of streamResult.stream) {
-      yield chunk;
-    }
+    try {
+      for await (const chunk of streamResult.stream) {
+        yield chunk;
+      }
 
-    // After stream completes, extract usage from final response
-    const response = await streamResult.response;
-    if (response.usageMetadata) {
-      onComplete(response.usageMetadata);
+      // After stream completes, extract usage from final response
+      const response = await streamResult.response;
+      if (response.usageMetadata) {
+        onComplete(response.usageMetadata);
+      }
+    } catch (error) {
+      onError?.(error);
+      throw error;
     }
   }
 

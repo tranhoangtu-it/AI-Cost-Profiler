@@ -119,9 +119,8 @@ describe('Streaming Helpers', () => {
         }
       }
 
-      const onStart = vi.fn();
-      const onDelta = vi.fn();
-      const wrapped = wrapAnthropicStream(mockStream(), onStart, onDelta);
+      const onComplete = vi.fn();
+      const wrapped = wrapAnthropicStream(mockStream(), onComplete);
 
       const yielded = [];
       for await (const event of wrapped) {
@@ -131,18 +130,19 @@ describe('Streaming Helpers', () => {
       expect(yielded).toEqual(mockEvents);
     });
 
-    it('should call onStart for message_start events', async () => {
+    it('should call onComplete once at stream end with accumulated tokens', async () => {
       const mockEvents = [
         {
           type: 'message_start',
           message: {
             usage: {
               input_tokens: 100,
-              cache_creation_input_tokens: 10,
               cache_read_input_tokens: 5,
             },
           },
         },
+        { type: 'content_block_delta', delta: { text: 'Hello' } },
+        { type: 'message_delta', usage: { output_tokens: 50 } },
       ];
 
       async function* mockStream() {
@@ -151,22 +151,23 @@ describe('Streaming Helpers', () => {
         }
       }
 
-      const onStart = vi.fn();
-      const onDelta = vi.fn();
-      const wrapped = wrapAnthropicStream(mockStream(), onStart, onDelta);
+      const onComplete = vi.fn();
+      const wrapped = wrapAnthropicStream(mockStream(), onComplete);
 
       for await (const event of wrapped) {
         // Consume stream
       }
 
-      expect(onStart).toHaveBeenCalledWith({
+      // Single call at end with accumulated values
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      expect(onComplete).toHaveBeenCalledWith({
         input_tokens: 100,
-        cache_creation_input_tokens: 10,
+        output_tokens: 50,
         cache_read_input_tokens: 5,
       });
     });
 
-    it('should call onDelta for message_delta events', async () => {
+    it('should accumulate output_tokens from multiple message_delta events', async () => {
       const mockEvents = [
         { type: 'message_start', message: { usage: { input_tokens: 100 } } },
         { type: 'message_delta', usage: { output_tokens: 25 } },
@@ -179,20 +180,23 @@ describe('Streaming Helpers', () => {
         }
       }
 
-      const onStart = vi.fn();
-      const onDelta = vi.fn();
-      const wrapped = wrapAnthropicStream(mockStream(), onStart, onDelta);
+      const onComplete = vi.fn();
+      const wrapped = wrapAnthropicStream(mockStream(), onComplete);
 
       for await (const event of wrapped) {
         // Consume stream
       }
 
-      expect(onDelta).toHaveBeenCalledTimes(2);
-      expect(onDelta).toHaveBeenNthCalledWith(1, { output_tokens: 25 });
-      expect(onDelta).toHaveBeenNthCalledWith(2, { output_tokens: 50 });
+      // Should use the last output_tokens value (Anthropic sends cumulative)
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      expect(onComplete).toHaveBeenCalledWith({
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_read_input_tokens: 0,
+      });
     });
 
-    it('should handle streams with no usage events', async () => {
+    it('should call onComplete with zeros when no usage events', async () => {
       const mockEvents = [
         { type: 'content_block_delta', delta: { text: 'test' } },
         { type: 'content_block_delta', delta: { text: '!' } },
@@ -204,16 +208,20 @@ describe('Streaming Helpers', () => {
         }
       }
 
-      const onStart = vi.fn();
-      const onDelta = vi.fn();
-      const wrapped = wrapAnthropicStream(mockStream(), onStart, onDelta);
+      const onComplete = vi.fn();
+      const wrapped = wrapAnthropicStream(mockStream(), onComplete);
 
       for await (const event of wrapped) {
         // Consume stream
       }
 
-      expect(onStart).not.toHaveBeenCalled();
-      expect(onDelta).not.toHaveBeenCalled();
+      // onComplete still called at stream end with zero values
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      expect(onComplete).toHaveBeenCalledWith({
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_input_tokens: 0,
+      });
     });
   });
 

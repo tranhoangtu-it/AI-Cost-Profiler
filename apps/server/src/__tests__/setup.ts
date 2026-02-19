@@ -8,6 +8,11 @@ vi.mock('../lib/redis.js', () => ({
       incrby: vi.fn().mockReturnThis(),
       exec: vi.fn().mockResolvedValue([]),
     }),
+    multi: vi.fn().mockReturnValue({
+      incr: vi.fn().mockReturnThis(),
+      expire: vi.fn().mockReturnThis(),
+      exec: vi.fn().mockResolvedValue([[null, 1], [null, 1]]),
+    }),
     publish: vi.fn().mockResolvedValue(0),
     get: vi.fn().mockResolvedValue('0'),
     keys: vi.fn().mockResolvedValue([]),

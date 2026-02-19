@@ -97,3 +97,31 @@ export type CostBreakdownItem = z.infer<typeof costBreakdownItemSchema>;
 export type FlamegraphNode = z.infer<typeof flamegraphNodeSchema>;
 export type TimeseriesPoint = z.infer<typeof timeseriesPointSchema>;
 export type PromptAnalysis = z.infer<typeof promptAnalysisSchema>;
+
+// Accepts ISO datetime or date-only strings
+const dateString = z.string().datetime({ offset: true }).or(z.string().date());
+
+/**
+ * Export events query schema
+ */
+export const exportQuerySchema = z.object({
+  format: z.enum(['csv', 'json']).default('csv'),
+  startDate: dateString.optional(),
+  endDate: dateString.optional(),
+  feature: z.string().optional(),
+  model: z.string().optional(),
+  provider: z.string().optional(),
+});
+
+/**
+ * Export cost summary query schema
+ */
+export const costSummaryQuerySchema = z.object({
+  format: z.enum(['csv', 'json']).default('csv'),
+  startDate: dateString.optional(),
+  endDate: dateString.optional(),
+  groupBy: z.enum(['feature', 'model', 'provider']).default('feature'),
+});
+
+export type ExportQuery = z.infer<typeof exportQuerySchema>;
+export type CostSummaryQuery = z.infer<typeof costSummaryQuerySchema>;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Download } from 'lucide-react';
 import { useExport } from '@/hooks/use-export';
 
@@ -13,15 +13,23 @@ export function ExportButton({ endpoint, filename }: ExportButtonProps) {
   const { exportData } = useExport();
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Auto-dismiss error toast after 5 seconds
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(null), 5000);
+    return () => clearTimeout(timer);
+  }, [error]);
 
   async function handleExport(format: 'csv' | 'json') {
     setLoading(true);
     setIsOpen(false);
     try {
       await exportData(endpoint, format, filename);
-    } catch (error) {
-      console.error('Export failed:', error);
-      alert('Export failed. Please try again.');
+    } catch (err) {
+      console.error('Export failed:', err);
+      setError('Export failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -59,6 +67,13 @@ export function ExportButton({ endpoint, filename }: ExportButtonProps) {
             </button>
           </div>
         </>
+      )}
+
+      {error && (
+        <div className="absolute right-0 mt-1 px-3 py-2 rounded bg-cost-high/10 text-cost-high text-xs border border-cost-high/20 z-30">
+          {error}
+          <button onClick={() => setError(null)} className="ml-2">&times;</button>
+        </div>
       )}
     </div>
   );

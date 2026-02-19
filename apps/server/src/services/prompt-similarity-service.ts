@@ -1,4 +1,4 @@
-import { db, events, promptEmbeddings } from '../db/index.js';
+import { db, events } from '../db/index.js';
 import { redis } from '../lib/redis.js';
 import { sql, eq, ne, desc } from 'drizzle-orm';
 import crypto from 'crypto';

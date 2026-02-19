@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useEffect, ReactNode } from 'react';
 
 type TimeRangeValue = '1h' | '6h' | '24h' | '7d' | '30d';
 
@@ -35,8 +35,15 @@ function calculateTimeRange(range: TimeRangeValue): TimeRange {
 
 export function TimeRangeProvider({ children }: { children: ReactNode }) {
   const [range, setRangeState] = useState<TimeRangeValue>('24h');
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const timeRange = useMemo(() => calculateTimeRange(range), [range]);
+  // Recalculate time range every 60 seconds to prevent staleness
+  useEffect(() => {
+    const interval = setInterval(() => setRefreshKey((k) => k + 1), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const timeRange = useMemo(() => calculateTimeRange(range), [range, refreshKey]);
 
   const setRange = useCallback((newRange: TimeRangeValue) => {
     setRangeState(newRange);
