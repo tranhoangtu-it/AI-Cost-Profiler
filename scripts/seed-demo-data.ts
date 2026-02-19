@@ -4,11 +4,14 @@
  */
 import 'dotenv/config';
 import { Pool } from 'pg';
+import Redis from 'ioredis';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../apps/server/src/db/schema.js';
 import {
   generateTraceId, generateSpanId, calculateCost,
 } from '../packages/shared/src/index.js';
+
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool, { schema });
@@ -70,6 +73,16 @@ async function seed() {
     await db.insert(schema.events).values(chunk);
     console.log(`Inserted ${Math.min(i + 100, events.length)} / ${events.length} events`);
   }
+
+  // Sync Redis real-time counters with seeded data
+  const totalCost = events.reduce((sum, e) => sum + parseFloat(e.estimatedCostUsd), 0);
+  const totalTokens = events.reduce((sum, e) => sum + e.inputTokens + e.outputTokens, 0);
+  const redisClient = new Redis(redisUrl);
+  await redisClient.set('realtime:total_cost', totalCost.toFixed(6));
+  await redisClient.set('realtime:total_requests', String(events.length));
+  await redisClient.set('realtime:total_tokens', String(totalTokens));
+  console.log(`Redis synced: $${totalCost.toFixed(4)} | ${events.length} requests | ${totalTokens} tokens`);
+  await redisClient.quit();
 
   console.log('Seeding complete!');
   await pool.end();

@@ -1,5 +1,5 @@
 import type { Response } from 'express';
-import { subscriber, REDIS_KEYS } from '../lib/redis.js';
+import { redis, subscriber, REDIS_KEYS } from '../lib/redis.js';
 import { logger } from '../middleware/error-handler.js';
 
 /**
@@ -12,7 +12,7 @@ class SSEManager {
   /**
    * Add SSE client and send initial connection message
    */
-  addClient(res: Response): void {
+  async addClient(res: Response): Promise<void> {
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -22,10 +22,12 @@ class SSEManager {
     // Add to client set
     this.clients.add(res);
 
-    // Send initial connection message
+    // Send snapshot with current Redis totals
+    const totalCost = parseFloat(await redis.get(REDIS_KEYS.TOTAL_COST) || '0');
     this.sendToClient(res, {
-      type: 'connected',
-      data: { timestamp: new Date().toISOString() },
+      type: 'snapshot',
+      totalCost,
+      timestamp: new Date().toISOString(),
     });
 
     // Setup Redis subscription if first client

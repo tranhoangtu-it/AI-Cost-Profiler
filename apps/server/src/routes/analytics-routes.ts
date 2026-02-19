@@ -1,5 +1,5 @@
 import { Router, type Router as RouterType } from 'express';
-import { costBreakdownQuerySchema, timeRangeSchema } from '@ai-cost-profiler/shared';
+import { costBreakdownQuerySchema, timeRangeSchema, baseTimeRangeSchema } from '@ai-cost-profiler/shared';
 import { validateQuery } from '../middleware/request-validator.js';
 import {
   getCostBreakdown,
@@ -33,7 +33,7 @@ analyticsRouter.get(
  */
 analyticsRouter.get(
   '/flamegraph',
-  validateQuery(timeRangeSchema),
+  validateQuery(baseTimeRangeSchema),
   async (req, res, next) => {
     try {
       const { from, to } = req.query as any;
@@ -67,7 +67,7 @@ analyticsRouter.get(
  */
 analyticsRouter.get(
   '/prompts',
-  validateQuery(timeRangeSchema),
+  validateQuery(baseTimeRangeSchema),
   async (req, res, next) => {
     try {
       const { from, to } = req.query as any;

@@ -135,6 +135,13 @@ export async function getFlamegraphData(
   return root;
 }
 
+// Whitelist of allowed granularity values to prevent SQL injection
+const GRANULARITY_VALUES: Record<string, string> = {
+  hour: 'hour',
+  day: 'day',
+  week: 'week',
+};
+
 /**
  * Get time series data with specified granularity
  */
@@ -143,19 +150,24 @@ export async function getTimeseries(
   to: string,
   granularity: 'hour' | 'day' | 'week'
 ): Promise<TimeseriesPoint[]> {
+  const safeGranularity = GRANULARITY_VALUES[granularity];
+  if (!safeGranularity) {
+    throw new Error(`Invalid granularity: ${granularity}`);
+  }
+
   const result = await db.execute(sql`
     SELECT
-      DATE_TRUNC(${granularity}, created_at) as timestamp,
+      DATE_TRUNC(${sql.raw(`'${safeGranularity}'`)}, created_at) as timestamp,
       SUM(CAST(verified_cost_usd AS NUMERIC)) as value
     FROM events
     WHERE created_at >= ${from}
       AND created_at <= ${to}
-    GROUP BY DATE_TRUNC(${granularity}, created_at)
+    GROUP BY DATE_TRUNC(${sql.raw(`'${safeGranularity}'`)}, created_at)
     ORDER BY timestamp ASC
   `);
 
   return result.rows.map((row: any) => ({
-    timestamp: row.timestamp.toISOString(),
+    timestamp: row.timestamp instanceof Date ? row.timestamp.toISOString() : new Date(row.timestamp).toISOString(),
     value: parseFloat(row.value),
   }));
 }
@@ -178,7 +190,7 @@ export async function getPromptAnalysis(
   const medianTokens = parseFloat((medianResult.rows[0] as any).median_tokens);
 
   // Find prompts with high token usage (>1.5x median)
-  const bloatThreshold = medianTokens * 1.5;
+  const bloatThreshold = Math.floor(medianTokens * 1.5);
 
   const result = await db.execute(sql`
     SELECT

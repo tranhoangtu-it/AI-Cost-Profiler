@@ -6,11 +6,17 @@ import { z } from 'zod';
 export const granularitySchema = z.enum(['hour', 'day', 'week']);
 
 /**
- * Base time range schema for analytics queries
+ * Base time range schema (no granularity) for flamegraph/prompts
  */
-export const timeRangeSchema = z.object({
+export const baseTimeRangeSchema = z.object({
   from: z.string().datetime(),
   to: z.string().datetime(),
+});
+
+/**
+ * Time range schema with granularity for timeseries
+ */
+export const timeRangeSchema = baseTimeRangeSchema.extend({
   granularity: granularitySchema,
 });
 
@@ -22,7 +28,7 @@ export const groupBySchema = z.enum(['feature', 'model', 'provider', 'user']);
 /**
  * Cost breakdown query schema
  */
-export const costBreakdownQuerySchema = timeRangeSchema.extend({
+export const costBreakdownQuerySchema = baseTimeRangeSchema.extend({
   groupBy: groupBySchema,
 });
 
@@ -82,6 +88,7 @@ export const promptAnalysisSchema = z.object({
   ),
 });
 
+export type BaseTimeRange = z.infer<typeof baseTimeRangeSchema>;
 export type TimeRange = z.infer<typeof timeRangeSchema>;
 export type Granularity = z.infer<typeof granularitySchema>;
 export type GroupBy = z.infer<typeof groupBySchema>;

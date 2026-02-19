@@ -4,24 +4,19 @@ import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import type { FlamegraphNode } from '@ai-cost-profiler/shared';
+import { useTimeRange } from '@/lib/use-time-range';
 
 const CostFlamegraph = dynamic(
   () => import('@/components/charts/cost-flamegraph').then(mod => ({ default: mod.CostFlamegraph })),
   { ssr: false }
 );
 
-function getTimeRange() {
-  const to = new Date().toISOString();
-  const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  return { from, to };
-}
-
 export default function FlamegraphPage() {
-  const { from, to } = getTimeRange();
+  const { from, to } = useTimeRange();
 
   const { data, isLoading } = useQuery({
     queryKey: ['flamegraph', from, to],
-    queryFn: () => api.getFlamegraph({ from, to }) as Promise<{ data: FlamegraphNode }>,
+    queryFn: () => api.getFlamegraph({ from, to }) as Promise<FlamegraphNode>,
   });
 
   return (
@@ -33,8 +28,8 @@ export default function FlamegraphPage() {
 
       <div className="rounded-lg border border-border-default bg-bg-surface p-5">
         {isLoading && <p className="text-text-muted">Loading flamegraph...</p>}
-        {data?.data && <CostFlamegraph data={data.data} />}
-        {!isLoading && !data?.data && (
+        {data && <CostFlamegraph data={data} />}
+        {!isLoading && !data && (
           <p className="text-text-muted">No data for selected time range.</p>
         )}
       </div>

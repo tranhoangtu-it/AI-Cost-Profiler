@@ -6,12 +6,7 @@ import { CostTreemap } from '@/components/charts/cost-treemap';
 import { DataTable } from '@/components/dashboard/data-table';
 import { formatCost, formatTokens, formatLatency } from '@/lib/utils';
 import type { CostBreakdownItem, FlamegraphNode } from '@ai-cost-profiler/shared';
-
-function getTimeRange() {
-  const to = new Date().toISOString();
-  const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  return { from, to };
-}
+import { useTimeRange } from '@/lib/use-time-range';
 
 const columns = [
   { key: 'dimension' as const, label: 'Feature' },
@@ -22,20 +17,20 @@ const columns = [
 ];
 
 export default function FeaturesPage() {
-  const { from, to } = getTimeRange();
+  const { from, to } = useTimeRange();
 
   const { data: breakdown } = useQuery({
     queryKey: ['cost-breakdown', 'feature', from, to],
-    queryFn: () => api.getCostBreakdown({ from, to, groupBy: 'feature' }) as Promise<{ data: CostBreakdownItem[] }>,
+    queryFn: () => api.getCostBreakdown({ from, to, groupBy: 'feature' }) as Promise<CostBreakdownItem[]>,
   });
 
   const { data: flamegraphResp } = useQuery({
     queryKey: ['flamegraph', from, to],
-    queryFn: () => api.getFlamegraph({ from, to }) as Promise<{ data: FlamegraphNode }>,
+    queryFn: () => api.getFlamegraph({ from, to }) as Promise<FlamegraphNode>,
   });
 
-  const items = breakdown?.data ?? [];
-  const treemapData = flamegraphResp?.data ?? { name: 'Project', value: 0, children: [] };
+  const items = breakdown ?? [];
+  const treemapData = flamegraphResp ?? { name: 'Project', value: 0, children: [] };
 
   return (
     <div className="space-y-6">

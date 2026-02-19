@@ -6,27 +6,22 @@ import { MetricCard } from '@/components/dashboard/metric-card';
 import { CostLineChart } from '@/components/charts/cost-line-chart';
 import { CostPieChart } from '@/components/charts/cost-pie-chart';
 import type { CostBreakdownItem, TimeseriesPoint } from '@ai-cost-profiler/shared';
-
-function getTimeRange() {
-  const to = new Date().toISOString();
-  const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  return { from, to };
-}
+import { useTimeRange } from '@/lib/use-time-range';
 
 export default function OverviewPage() {
-  const { from, to } = getTimeRange();
+  const { from, to } = useTimeRange();
 
   const { data: breakdown } = useQuery({
     queryKey: ['cost-breakdown', 'model', from, to],
-    queryFn: () => api.getCostBreakdown({ from, to, groupBy: 'model' }) as Promise<{ data: CostBreakdownItem[] }>,
+    queryFn: () => api.getCostBreakdown({ from, to, groupBy: 'model' }) as Promise<CostBreakdownItem[]>,
   });
 
   const { data: timeseries } = useQuery({
     queryKey: ['timeseries', from, to],
-    queryFn: () => api.getTimeseries({ from, to, granularity: 'hour' }) as Promise<{ data: TimeseriesPoint[] }>,
+    queryFn: () => api.getTimeseries({ from, to, granularity: 'hour' }) as Promise<TimeseriesPoint[]>,
   });
 
-  const items = breakdown?.data ?? [];
+  const items = breakdown ?? [];
   const totalCost = items.reduce((sum, i) => sum + i.totalCostUsd, 0);
   const totalTokens = items.reduce((sum, i) => sum + i.totalTokens, 0);
   const totalCalls = items.reduce((sum, i) => sum + i.requestCount, 0);
@@ -48,7 +43,7 @@ export default function OverviewPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 rounded-lg border border-border-default bg-bg-surface p-5">
           <h2 className="text-sm font-semibold text-text-secondary mb-4">Cost Over Time</h2>
-          <CostLineChart data={timeseries?.data ?? []} />
+          <CostLineChart data={timeseries ?? []} />
         </div>
         <div className="rounded-lg border border-border-default bg-bg-surface p-5">
           <h2 className="text-sm font-semibold text-text-secondary mb-4">Cost by Model</h2>

@@ -72,13 +72,15 @@ export function RealtimeFeed() {
               <span className="text-text-secondary">
                 {event.count} call{event.count !== 1 ? 's' : ''}
               </span>
-              <div className="flex gap-1">
-                {event.features.map((f) => (
-                  <span key={f} className="px-2 py-0.5 rounded bg-bg-muted text-xs text-text-secondary">
-                    {f}
-                  </span>
-                ))}
-              </div>
+              {event.features && event.features.length > 0 && (
+                <div className="flex gap-1">
+                  {event.features.map((f) => (
+                    <span key={f} className="px-2 py-0.5 rounded bg-bg-muted text-xs text-text-secondary">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <span className="font-mono text-cost-medium">{formatCost(event.totalCost)}</span>
           </div>

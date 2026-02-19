@@ -5,12 +5,7 @@ import { api } from '@/lib/api-client';
 import { DataTable } from '@/components/dashboard/data-table';
 import { formatTokens } from '@/lib/utils';
 import type { PromptAnalysis } from '@ai-cost-profiler/shared';
-
-function getTimeRange() {
-  const to = new Date().toISOString();
-  const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  return { from, to };
-}
+import { useTimeRange } from '@/lib/use-time-range';
 
 const columns = [
   { key: 'content' as const, label: 'Prompt Content', render: (v: unknown) => {
@@ -27,14 +22,14 @@ const columns = [
 ];
 
 export default function PromptsPage() {
-  const { from, to } = getTimeRange();
+  const { from, to } = useTimeRange();
 
   const { data, isLoading } = useQuery({
     queryKey: ['prompts', from, to],
-    queryFn: () => api.getPrompts({ from, to }) as Promise<{ data: PromptAnalysis[] }>,
+    queryFn: () => api.getPrompts({ from, to }) as Promise<PromptAnalysis[]>,
   });
 
-  const items = data?.data ?? [];
+  const items = data ?? [];
   const similarCount = items.filter((i) => i.similarPrompts.length > 0).length;
 
   return (
