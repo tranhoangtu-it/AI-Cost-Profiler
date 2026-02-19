@@ -1,0 +1,41 @@
+{
+  "name": "@ai-cost-profiler/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-cost-profiler/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "openai": "^4.0.0",
+    "@anthropic-ai/sdk": "^0.20.0"
+  },
+  "peerDependenciesMeta": {
+    "openai": {
+      "optional": true
+    },
+    "@anthropic-ai/sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "openai": "^4.50.0",
+    "@anthropic-ai/sdk": "^0.24.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  }
+}

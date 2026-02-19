@@ -1,0 +1,55 @@
+'use client';
+
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api-client';
+import { CostTreemap } from '@/components/charts/cost-treemap';
+import { DataTable } from '@/components/dashboard/data-table';
+import { formatCost, formatTokens, formatLatency } from '@/lib/utils';
+import type { CostBreakdownItem, FlamegraphNode } from '@ai-cost-profiler/shared';
+
+function getTimeRange() {
+  const to = new Date().toISOString();
+  const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  return { from, to };
+}
+
+const columns = [
+  { key: 'dimension' as const, label: 'Feature' },
+  { key: 'totalCostUsd' as const, label: 'Cost', align: 'right' as const, render: (v: unknown) => formatCost(v as number) },
+  { key: 'totalTokens' as const, label: 'Tokens', align: 'right' as const, render: (v: unknown) => formatTokens(v as number) },
+  { key: 'requestCount' as const, label: 'Calls', align: 'right' as const },
+  { key: 'avgLatencyMs' as const, label: 'Avg Latency', align: 'right' as const, render: (v: unknown) => formatLatency(v as number) },
+];
+
+export default function FeaturesPage() {
+  const { from, to } = getTimeRange();
+
+  const { data: breakdown } = useQuery({
+    queryKey: ['cost-breakdown', 'feature', from, to],
+    queryFn: () => api.getCostBreakdown({ from, to, groupBy: 'feature' }) as Promise<{ data: CostBreakdownItem[] }>,
+  });
+
+  const { data: flamegraphResp } = useQuery({
+    queryKey: ['flamegraph', from, to],
+    queryFn: () => api.getFlamegraph({ from, to }) as Promise<{ data: FlamegraphNode }>,
+  });
+
+  const items = breakdown?.data ?? [];
+  const treemapData = flamegraphResp?.data ?? { name: 'Project', value: 0, children: [] };
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-xl font-semibold">Feature Breakdown</h1>
+
+      <div className="rounded-lg border border-border-default bg-bg-surface p-5">
+        <h2 className="text-sm font-semibold text-text-secondary mb-4">Cost Treemap</h2>
+        <CostTreemap data={treemapData} />
+      </div>
+
+      <div className="rounded-lg border border-border-default bg-bg-surface p-4">
+        <h2 className="text-sm font-semibold text-text-secondary mb-4">Feature Details</h2>
+        <DataTable columns={columns} data={items} />
+      </div>
+    </div>
+  );
+}

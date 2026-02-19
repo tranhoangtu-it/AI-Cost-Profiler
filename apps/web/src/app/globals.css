@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --chart-1: #818cf8;
+  --chart-2: #38bdf8;
+  --chart-3: #34d399;
+  --chart-4: #fbbf24;
+  --chart-5: #f87171;
+  --chart-6: #c084fc;
+  --chart-7: #fb923c;
+}
+
+body {
+  @apply bg-bg-base text-text-primary font-sans;
+}
+
+.font-metric {
+  @apply font-mono tabular-nums;
+}

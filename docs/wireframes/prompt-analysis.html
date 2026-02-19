@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Cost Profiler - Prompt Analysis Wireframe</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg-base: #0a0a0f; --bg-surface: #111118; --bg-elevated: #1a1a24;
+    --bg-muted: #23232f; --text-primary: #e8e8ed; --text-secondary: #9494a8;
+    --text-muted: #5c5c72; --cost-low: #34d399; --cost-medium: #fbbf24;
+    --cost-high: #f87171; --accent: #818cf8; --accent2: #38bdf8;
+    --border: #1e1e2e; --font-sans: "Inter", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  }
+  body { background: var(--bg-base); color: var(--text-primary); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
+  .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+  @media (max-width: 767px) { .app { grid-template-columns: 1fr; } .sidebar { display: none; } }
+
+  .sidebar { background: var(--bg-surface); border-right: 1px solid var(--border); padding: 20px 0; }
+  .sidebar-brand { padding: 0 16px 20px; font-size: 16px; font-weight: 600; color: var(--accent); }
+  .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: var(--text-secondary); text-decoration: none; font-size: 13px; border-left: 3px solid transparent; }
+  .sidebar-nav a.active, .sidebar-nav a:hover { color: var(--text-primary); background: var(--bg-elevated); border-left-color: var(--accent); }
+
+  .main { padding: 24px; max-width: 1220px; }
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+  .header h1 { font-size: 20px; font-weight: 600; }
+
+  .card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+  .annotation { background: var(--bg-muted); border-left: 3px solid var(--accent); padding: 8px 12px; margin: 16px 0; font-size: 11px; color: var(--text-secondary); border-radius: 0 4px 4px 0; }
+
+  .section-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+  .controls { display: flex; gap: 8px; }
+  .btn { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); padding: 6px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+  .btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  .search { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); padding: 8px 14px; border-radius: 6px; font-size: 13px; width: 260px; }
+  .search::placeholder { color: var(--text-muted); }
+
+  /* Stats Row */
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  @media (max-width: 767px) { .stats-row { grid-template-columns: 1fr; } }
+  .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 4px; }
+  .stat-value { font-family: var(--font-mono); font-size: 20px; font-weight: 600; }
+
+  /* Prompt List */
+  .prompt-item { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 16px; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); }
+  @media (max-width: 1023px) { .prompt-item { grid-template-columns: 1fr auto auto; } .prompt-item .hide-tablet { display: none; } }
+  @media (max-width: 767px) { .prompt-item { grid-template-columns: 1fr auto; } }
+  .prompt-name { font-size: 13px; font-weight: 500; }
+  .prompt-path { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px; }
+  .prompt-meta { text-align: right; }
+  .prompt-meta-label { font-size: 10px; text-transform: uppercase; color: var(--text-muted); }
+  .prompt-meta-value { font-family: var(--font-mono); font-size: 13px; }
+
+  /* Bloat Indicator */
+  .bloat-bar-container { width: 80px; height: 6px; background: var(--bg-muted); border-radius: 3px; margin-top: 4px; }
+  .bloat-bar { height: 100%; border-radius: 3px; }
+  .bloat-label { font-size: 10px; margin-top: 2px; }
+
+  /* Similarity badge */
+  .sim-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-family: var(--font-mono); }
+  .sim-high { background: rgba(248,113,113,0.15); color: var(--cost-high); }
+  .sim-med { background: rgba(251,191,36,0.15); color: var(--cost-medium); }
+  .sim-low { background: rgba(52,211,153,0.15); color: var(--cost-low); }
+
+  /* Context Size Trend */
+  .trend-chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; padding-top: 10px; }
+  .trend-bar { flex: 1; border-radius: 2px 2px 0 0; position: relative; }
+  .trend-bar::after { content: attr(data-label); position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 9px; color: var(--text-muted); white-space: nowrap; }
+  .trend-labels { display: flex; justify-content: space-between; margin-top: 24px; font-size: 10px; color: var(--text-muted); }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 1023px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* Redundancy highlight */
+  .code-block { background: var(--bg-base); border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-family: var(--font-mono); font-size: 11px; line-height: 1.7; overflow-x: auto; }
+  .highlight-redundant { background: rgba(248,113,113,0.15); border-left: 2px solid var(--cost-high); padding-left: 6px; display: block; }
+  .highlight-ok { opacity: 0.5; display: block; }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="sidebar">
+    <div class="sidebar-brand">AI Cost Profiler</div>
+    <div class="sidebar-nav">
+      <a href="dashboard.html">&#9632; Dashboard</a>
+      <a href="flamegraph.html">&#9650; Flamegraph</a>
+      <a href="prompt-analysis.html" class="active">&#9679; Prompt Analysis</a>
+    </div>
+  </nav>
+
+  <main class="main">
+    <div class="header">
+      <h1>Prompt Analysis</h1>
+      <div class="controls">
+        <input class="search" type="text" placeholder="Filter by endpoint or prompt name...">
+        <button class="btn">Sort: Bloat Score</button>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="card"><div class="stat-label">Prompts Analyzed</div><div class="stat-value">247</div></div>
+      <div class="card"><div class="stat-label">Avg Bloat Score</div><div class="stat-value" style="color:var(--cost-medium)">38%</div></div>
+      <div class="card"><div class="stat-label">Est. Waste (24h)</div><div class="stat-value" style="color:var(--cost-high)">$412.60</div></div>
+    </div>
+
+    <div class="annotation">WIREFRAME: Prompt list with token count, cost, similarity score, and bloat indicator bars</div>
+
+    <!-- Prompt List -->
+    <div class="card">
+      <div class="section-title">Prompts by Bloat Score</div>
+
+      <div class="prompt-item" style="border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:4px;">
+        <span style="font-size:11px; text-transform:uppercase; color:var(--text-muted);">Prompt</span>
+        <span style="font-size:11px; text-transform:uppercase; color:var(--text-muted);">Tokens</span>
+        <span style="font-size:11px; text-transform:uppercase; color:var(--text-muted);">Cost</span>
+        <span style="font-size:11px; text-transform:uppercase; color:var(--text-muted);" class="hide-tablet">Similarity</span>
+        <span style="font-size:11px; text-transform:uppercase; color:var(--text-muted);" class="hide-tablet">Bloat</span>
+      </div>
+
+      <div class="prompt-item">
+        <div><div class="prompt-name">Chat System Prompt</div><div class="prompt-path">/chat/completion</div></div>
+        <div class="prompt-meta"><div class="prompt-meta-value">4,218</div></div>
+        <div class="prompt-meta"><div class="prompt-meta-value">$0.063</div></div>
+        <div class="prompt-meta hide-tablet"><span class="sim-badge sim-high">92%</span></div>
+        <div class="hide-tablet"><div class="bloat-bar-container"><div class="bloat-bar" style="width:78%; background:var(--cost-high)"></div></div><div class="bloat-label" style="color:var(--cost-high)">78% bloat</div></div>
+      </div>
+      <div class="prompt-item">
+        <div><div class="prompt-name">Summarize Context</div><div class="prompt-path">/summarize/doc</div></div>
+        <div class="prompt-meta"><div class="prompt-meta-value">2,841</div></div>
+        <div class="prompt-meta"><div class="prompt-meta-value">$0.043</div></div>
+        <div class="prompt-meta hide-tablet"><span class="sim-badge sim-high">87%</span></div>
+        <div class="hide-tablet"><div class="bloat-bar-container"><div class="bloat-bar" style="width:62%; background:var(--cost-high)"></div></div><div class="bloat-label" style="color:var(--cost-high)">62% bloat</div></div>
+      </div>
+      <div class="prompt-item">
+        <div><div class="prompt-name">Classification Prompt</div><div class="prompt-path">/classify</div></div>
+        <div class="prompt-meta"><div class="prompt-meta-value">1,102</div></div>
+        <div class="prompt-meta"><div class="prompt-meta-value">$0.017</div></div>
+        <div class="prompt-meta hide-tablet"><span class="sim-badge sim-med">54%</span></div>
+        <div class="hide-tablet"><div class="bloat-bar-container"><div class="bloat-bar" style="width:35%; background:var(--cost-medium)"></div></div><div class="bloat-label" style="color:var(--cost-medium)">35% bloat</div></div>
+      </div>
+      <div class="prompt-item">
+        <div><div class="prompt-name">Embed Instructions</div><div class="prompt-path">/embeddings</div></div>
+        <div class="prompt-meta"><div class="prompt-meta-value">312</div></div>
+        <div class="prompt-meta"><div class="prompt-meta-value">$0.005</div></div>
+        <div class="prompt-meta hide-tablet"><span class="sim-badge sim-low">18%</span></div>
+        <div class="hide-tablet"><div class="bloat-bar-container"><div class="bloat-bar" style="width:12%; background:var(--cost-low)"></div></div><div class="bloat-label" style="color:var(--cost-low)">12% bloat</div></div>
+      </div>
+    </div>
+
+    <div class="annotation">WIREFRAME: Bottom section - context size trend chart (left) + redundant context highlighting (right)</div>
+
+    <div class="two-col">
+      <!-- Context Size Trend -->
+      <div class="card">
+        <div class="section-title">Context Size Trend (7 days)</div>
+        <div class="trend-chart">
+          <div class="trend-bar" data-label="Mon" style="height:55%; background:var(--cost-medium);"></div>
+          <div class="trend-bar" data-label="Tue" style="height:60%; background:var(--cost-medium);"></div>
+          <div class="trend-bar" data-label="Wed" style="height:72%; background:var(--cost-high);"></div>
+          <div class="trend-bar" data-label="Thu" style="height:68%; background:var(--cost-high);"></div>
+          <div class="trend-bar" data-label="Fri" style="height:80%; background:var(--cost-high);"></div>
+          <div class="trend-bar" data-label="Sat" style="height:85%; background:var(--cost-high);"></div>
+          <div class="trend-bar" data-label="Sun" style="height:90%; background:var(--cost-high);"></div>
+        </div>
+        <div class="trend-labels">
+          <span>Avg 2,100 tokens</span>
+          <span style="color:var(--cost-high)">Avg 3,840 tokens (today)</span>
+        </div>
+      </div>
+
+      <!-- Redundancy Highlight -->
+      <div class="card">
+        <div class="section-title">Redundant Context Detection</div>
+        <div class="code-block">
+<span class="highlight-ok">You are a helpful assistant for Acme Corp.</span>
+<span class="highlight-redundant">You must always respond in JSON format. (repeated in 94% of prompts)</span>
+<span class="highlight-redundant">The current date is {{date}}. (redundant - available via tool)</span>
+<span class="highlight-ok">User preferences: {{preferences}}</span>
+<span class="highlight-redundant">Remember: always be concise. (repeated in 87% of prompts)</span>
+<span class="highlight-ok">Context: {{retrieved_docs}}</span>
+<span class="highlight-redundant">Important: do not hallucinate. (repeated in 91% of prompts)</span>
+        </div>
+        <div style="margin-top:12px; font-size:12px; color:var(--text-secondary);">
+          <span style="color:var(--cost-high);">&#9632;</span> Redundant context (movable to system config)
+          <span style="margin-left:12px; opacity:0.5;">&#9632;</span> Unique context (keep)
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

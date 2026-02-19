@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Cost Profiler - Dashboard Wireframe</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg-base: #0a0a0f; --bg-surface: #111118; --bg-elevated: #1a1a24;
+    --bg-muted: #23232f; --text-primary: #e8e8ed; --text-secondary: #9494a8;
+    --text-muted: #5c5c72; --cost-low: #34d399; --cost-medium: #fbbf24;
+    --cost-high: #f87171; --accent: #818cf8; --accent2: #38bdf8;
+    --border: #1e1e2e; --font-sans: "Inter", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  }
+  body { background: var(--bg-base); color: var(--text-primary); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; }
+
+  /* Layout */
+  .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+  @media (max-width: 767px) { .app { grid-template-columns: 1fr; } .sidebar { display: none; } }
+
+  /* Sidebar */
+  .sidebar { background: var(--bg-surface); border-right: 1px solid var(--border); padding: 20px 0; }
+  .sidebar-brand { padding: 0 16px 20px; font-size: 16px; font-weight: 600; color: var(--accent); }
+  .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 16px; color: var(--text-secondary); text-decoration: none; font-size: 13px; border-left: 3px solid transparent; }
+  .sidebar-nav a.active, .sidebar-nav a:hover { color: var(--text-primary); background: var(--bg-elevated); border-left-color: var(--accent); }
+
+  /* Main */
+  .main { padding: 24px; max-width: 1220px; }
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .time-select { background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary); padding: 6px 12px; border-radius: 6px; font-size: 12px; }
+
+  /* Summary Cards */
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  @media (max-width: 1023px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 767px) { .summary-grid { grid-template-columns: 1fr; } }
+  .card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+  .card-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .card-value { font-family: var(--font-mono); font-size: 24px; font-weight: 600; }
+  .card-trend { font-family: var(--font-mono); font-size: 12px; margin-top: 6px; }
+  .trend-up { color: var(--cost-high); }
+  .trend-down { color: var(--cost-low); }
+  .sparkline { height: 32px; margin-top: 12px; background: linear-gradient(90deg, transparent, var(--accent)); opacity: 0.15; border-radius: 2px; }
+
+  /* Charts Row */
+  .charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 24px; }
+  @media (max-width: 1023px) { .charts-grid { grid-template-columns: 1fr; } }
+  .chart-area { min-height: 240px; display: flex; align-items: flex-end; gap: 4px; padding-top: 40px; }
+  .chart-bar { background: var(--accent); border-radius: 3px 3px 0 0; flex: 1; opacity: 0.7; }
+  .chart-title { font-size: 14px; font-weight: 600; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+
+  /* Pie placeholder */
+  .pie-area { display: flex; align-items: center; justify-content: center; min-height: 240px; }
+  .pie { width: 160px; height: 160px; border-radius: 50%; background: conic-gradient(var(--accent) 0% 35%, var(--accent2) 35% 55%, var(--cost-low) 55% 75%, var(--cost-medium) 75% 90%, var(--cost-high) 90% 100%); }
+  .legend { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 12px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* Table */
+  .table-card { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  tr:hover { background: var(--bg-elevated); }
+  .mono { font-family: var(--font-mono); font-size: 12px; }
+  .cost-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+  .badge-high { background: rgba(248,113,113,0.15); color: var(--cost-high); }
+  .badge-med { background: rgba(251,191,36,0.15); color: var(--cost-medium); }
+  .badge-low { background: rgba(52,211,153,0.15); color: var(--cost-low); }
+
+  /* Annotation */
+  .annotation { background: var(--bg-muted); border-left: 3px solid var(--accent); padding: 8px 12px; margin: 16px 0; font-size: 11px; color: var(--text-secondary); border-radius: 0 4px 4px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">AI Cost Profiler</div>
+    <div class="sidebar-nav">
+      <a href="dashboard.html" class="active">&#9632; Dashboard</a>
+      <a href="flamegraph.html">&#9650; Flamegraph</a>
+      <a href="prompt-analysis.html">&#9679; Prompt Analysis</a>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="main">
+    <div class="header">
+      <h1>Overview</h1>
+      <select class="time-select"><option>Last 24 hours</option><option>Last 7 days</option><option>Last 30 days</option></select>
+    </div>
+
+    <div class="annotation">WIREFRAME: Summary metric cards with sparklines and trend indicators</div>
+
+    <!-- Summary Cards -->
+    <div class="summary-grid">
+      <div class="card">
+        <div class="card-label">Total Cost (24h)</div>
+        <div class="card-value">$1,284.52</div>
+        <div class="card-trend trend-up">&#9650; 12.3% vs prev period</div>
+        <div class="sparkline"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Total Tokens</div>
+        <div class="card-value mono">14.2M</div>
+        <div class="card-trend trend-up">&#9650; 8.1%</div>
+        <div class="sparkline"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Avg Latency</div>
+        <div class="card-value mono">342ms</div>
+        <div class="card-trend trend-down">&#9660; 5.2%</div>
+        <div class="sparkline"></div>
+      </div>
+      <div class="card">
+        <div class="card-label">Cache Hit Rate</div>
+        <div class="card-value mono" style="color:var(--cost-low)">73.8%</div>
+        <div class="card-trend trend-down" style="color:var(--cost-low)">&#9650; 3.1%</div>
+        <div class="sparkline"></div>
+      </div>
+    </div>
+
+    <div class="annotation">WIREFRAME: Cost over time bar chart (left) + Model distribution pie (right)</div>
+
+    <!-- Charts Row -->
+    <div class="charts-grid">
+      <div class="card">
+        <div class="chart-title">Cost Over Time <span class="time-select">Hourly</span></div>
+        <div class="chart-area">
+          <div class="chart-bar" style="height:45%"></div><div class="chart-bar" style="height:62%"></div>
+          <div class="chart-bar" style="height:38%"></div><div class="chart-bar" style="height:71%"></div>
+          <div class="chart-bar" style="height:55%"></div><div class="chart-bar" style="height:83%"></div>
+          <div class="chart-bar" style="height:90%"></div><div class="chart-bar" style="height:76%"></div>
+          <div class="chart-bar" style="height:60%"></div><div class="chart-bar" style="height:48%"></div>
+          <div class="chart-bar" style="height:52%"></div><div class="chart-bar" style="height:67%"></div>
+          <div class="chart-bar" style="height:58%"></div><div class="chart-bar" style="height:72%"></div>
+          <div class="chart-bar" style="height:85%"></div><div class="chart-bar" style="height:64%"></div>
+          <div class="chart-bar" style="height:50%"></div><div class="chart-bar" style="height:43%"></div>
+          <div class="chart-bar" style="height:69%"></div><div class="chart-bar" style="height:78%"></div>
+          <div class="chart-bar" style="height:56%"></div><div class="chart-bar" style="height:41%"></div>
+          <div class="chart-bar" style="height:63%"></div><div class="chart-bar" style="height:74%"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="chart-title">Model Distribution</div>
+        <div class="pie-area"><div class="pie"></div></div>
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>GPT-4o (35%)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div>Claude 3.5 (20%)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--cost-low)"></div>GPT-4o-mini (20%)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--cost-medium)"></div>Gemini (15%)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--cost-high)"></div>Other (10%)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="annotation">WIREFRAME: Top expensive features table with cost badges and sortable columns</div>
+
+    <!-- Top Expensive Features Table -->
+    <div class="card table-card">
+      <div class="chart-title">Top Expensive Features</div>
+      <table>
+        <thead><tr><th>Feature</th><th>Requests</th><th>Tokens</th><th>Cost (24h)</th><th>Avg Latency</th><th>Severity</th></tr></thead>
+        <tbody>
+          <tr><td>/api/chat/completion</td><td class="mono">12,483</td><td class="mono">8.2M</td><td class="mono">$542.18</td><td class="mono">890ms</td><td><span class="cost-badge badge-high">High</span></td></tr>
+          <tr><td>/api/summarize</td><td class="mono">8,291</td><td class="mono">3.1M</td><td class="mono">$318.45</td><td class="mono">420ms</td><td><span class="cost-badge badge-high">High</span></td></tr>
+          <tr><td>/api/embeddings</td><td class="mono">45,102</td><td class="mono">1.8M</td><td class="mono">$201.30</td><td class="mono">85ms</td><td><span class="cost-badge badge-med">Medium</span></td></tr>
+          <tr><td>/api/classify</td><td class="mono">6,847</td><td class="mono">0.7M</td><td class="mono">$142.80</td><td class="mono">210ms</td><td><span class="cost-badge badge-med">Medium</span></td></tr>
+          <tr><td>/api/autocomplete</td><td class="mono">22,150</td><td class="mono">0.4M</td><td class="mono">$79.79</td><td class="mono">65ms</td><td><span class="cost-badge badge-low">Low</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+</body>
+</html>
