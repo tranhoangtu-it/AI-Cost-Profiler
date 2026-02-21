@@ -1,5 +1,6 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
@@ -10,13 +11,13 @@ interface CostLineChartProps {
   data: TimeseriesPoint[];
 }
 
-export function CostLineChart({ data }: CostLineChartProps) {
-  const formatted = data.map((d) => ({
+export const CostLineChart = memo(function CostLineChart({ data }: CostLineChartProps) {
+  const formatted = useMemo(() => data.map((d) => ({
     ...d,
     time: new Date(d.timestamp).toLocaleString('en-US', {
       month: 'short', day: 'numeric', hour: '2-digit',
     }),
-  }));
+  })), [data]);
 
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -45,4 +46,4 @@ export function CostLineChart({ data }: CostLineChartProps) {
       </LineChart>
     </ResponsiveContainer>
   );
-}
+});

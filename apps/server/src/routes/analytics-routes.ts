@@ -1,6 +1,6 @@
 import { Router, type Router as RouterType } from 'express';
 import { costBreakdownQuerySchema, timeRangeSchema, baseTimeRangeSchema } from '@ai-cost-profiler/shared';
-import { validateQuery } from '../middleware/request-validator.js';
+import { validateQuery, validateDateRange } from '../middleware/request-validator.js';
 import { rateLimiters } from '../middleware/rate-limiter.js';
 import {
   getCostBreakdown,
@@ -13,6 +13,18 @@ import {
 import { findSimilarPrompts } from '../services/prompt-similarity-service.js';
 
 export const analyticsRouter: RouterType = Router();
+
+// Date range validation middleware for routes with from/to params
+analyticsRouter.use((req, res, next) => {
+  const { from, to } = req.query as Record<string, string>;
+  if (from && to) {
+    const validation = validateDateRange(from, to);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+  }
+  next();
+});
 
 /**
  * GET /cost-breakdown - Cost breakdown by dimension

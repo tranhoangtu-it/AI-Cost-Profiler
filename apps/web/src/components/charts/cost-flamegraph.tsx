@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { select } from 'd3-selection';
 import { flamegraph } from 'd3-flame-graph';
 import 'd3-flame-graph/dist/d3-flamegraph.css';
@@ -10,7 +10,7 @@ interface CostFlamegraphProps {
   data: FlamegraphNode;
 }
 
-export function CostFlamegraph({ data }: CostFlamegraphProps) {
+export const CostFlamegraph = memo(function CostFlamegraph({ data }: CostFlamegraphProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -45,4 +45,4 @@ export function CostFlamegraph({ data }: CostFlamegraphProps) {
       className="w-full min-h-[400px] [&_.d3-flame-graph]:bg-transparent [&_rect]:rx-1"
     />
   );
-}
+});

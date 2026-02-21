@@ -1,6 +1,7 @@
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
 import type { TimeseriesPoint } from '@ai-cost-profiler/shared';
+import type { TimeseriesRow } from './types/analytics-query-result-types.js';
 
 // Whitelist of allowed granularity values to prevent SQL injection
 const GRANULARITY_VALUES: Record<string, string> = {
@@ -22,6 +23,7 @@ export async function getTimeseries(
     throw new Error(`Invalid granularity: ${granularity}`);
   }
 
+  // safeGranularity is whitelist-guarded, sql.raw is safe here
   const result = await db.execute(sql`
     SELECT
       DATE_TRUNC(${sql.raw(`'${safeGranularity}'`)}, created_at) as timestamp,
@@ -31,10 +33,11 @@ export async function getTimeseries(
       AND created_at <= ${to}
     GROUP BY DATE_TRUNC(${sql.raw(`'${safeGranularity}'`)}, created_at)
     ORDER BY timestamp ASC
+    LIMIT 1000
   `);
 
-  return result.rows.map((row: any) => ({
-    timestamp: row.timestamp instanceof Date ? row.timestamp.toISOString() : new Date(row.timestamp).toISOString(),
-    value: parseFloat(row.value),
+  return (result.rows as TimeseriesRow[]).map((row) => ({
+    timestamp: row.timestamp instanceof Date ? row.timestamp.toISOString() : new Date(row.timestamp as string).toISOString(),
+    value: Number(row.value),
   }));
 }

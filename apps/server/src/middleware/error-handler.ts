@@ -28,7 +28,6 @@ export function errorHandler(
     err,
     method: req.method,
     path: req.path,
-    query: req.query,
   }, 'Request error');
 
   // Determine status code

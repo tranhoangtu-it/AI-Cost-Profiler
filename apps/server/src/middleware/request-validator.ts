@@ -2,6 +2,20 @@ import type { Request, Response, NextFunction } from 'express';
 import type { z } from 'zod';
 
 /**
+ * Validate date range: from < to, valid ISO format
+ */
+export function validateDateRange(from: string, to: string): { valid: boolean; error?: string } {
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+
+  if (isNaN(fromDate.getTime())) return { valid: false, error: 'Invalid "from" date format' };
+  if (isNaN(toDate.getTime())) return { valid: false, error: 'Invalid "to" date format' };
+  if (fromDate >= toDate) return { valid: false, error: '"from" must be before "to"' };
+
+  return { valid: true };
+}
+
+/**
  * Validate request body against Zod schema
  */
 export function validateBody<T extends z.ZodTypeAny>(schema: T) {

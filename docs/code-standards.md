@@ -52,7 +52,11 @@ src/
 src/
 ├── providers/           # Provider-specific interceptors
 │   ├── openai-interceptor.ts
-│   └── anthropic-interceptor.ts
+│   ├── anthropic-interceptor.ts
+│   ├── gemini-interceptor.ts
+│   ├── error-classifier.ts        # Shared error classification
+│   ├── shared-event-builder.ts    # Unified event construction (NEW)
+│   └── streaming-helpers.ts       # Stream handling utilities
 ├── transport/           # Event batching
 │   └── event-batcher.ts
 ├── utils/               # Helpers
@@ -71,8 +75,8 @@ src/
 │   └── redis.ts                     # Redis client & keys
 ├── middleware/                      # Express middleware
 │   ├── request-validator.ts         # Zod validation
-│   ├── error-handler.ts             # Error handling
-│   └── rate-limiter.ts              # Fixed-window limiter
+│   ├── error-handler.ts             # Error handling (no query logging)
+│   └── rate-limiter.ts              # Fixed-window limiter (atomic)
 ├── routes/                          # API routes
 │   ├── event-routes.ts              # Event ingestion
 │   ├── analytics-routes.ts          # Analytics queries
@@ -81,11 +85,13 @@ src/
 ├── services/                        # Business logic
 │   ├── event-processor.ts           # Event storage
 │   ├── analytics-service.ts         # Re-exports (backward compat)
-│   ├── cost-breakdown-service.ts    # Cost breakdown logic
+│   ├── cost-breakdown-service.ts    # Cost breakdown logic (max 500)
 │   ├── flamegraph-service.ts        # Flamegraph aggregation
-│   ├── timeseries-service.ts        # Time-series logic
+│   ├── timeseries-service.ts        # Time-series logic (max 1000)
 │   ├── sse-manager.ts               # SSE connection mgmt
-│   └── prompt-similarity-service.ts # Prompt embeddings
+│   ├── prompt-similarity-service.ts # Prompt embeddings
+│   └── types/                       # Type definitions (NEW)
+│       └── analytics-query-result-types.ts # Typed query results
 ├── utils/                           # Utilities
 │   └── pagination.ts                # Cursor pagination
 ├── app.ts                           # Express app factory
@@ -290,9 +296,15 @@ export const events = pgTable('events', {
 ### Indexes
 ```typescript
 // Add indexes for query performance
+export const eventsCreatedAtIdIdx = index('events_created_at_id_idx').on(events.createdAt, events.id);
 export const eventsFeatureIdx = index('events_feature_idx').on(events.feature);
 export const eventsModelIdx = index('events_model_idx').on(events.model);
-export const eventsTimestampIdx = index('events_timestamp_idx').on(events.timestamp);
+export const eventsProviderIdx = index('events_provider_idx').on(events.provider);
+export const eventsFeatureTimeIdx = index('events_feature_time_idx').on(events.feature, events.createdAt);
+export const eventsUserTimeIdx = index('events_user_time_idx').on(events.userId, events.createdAt);
+export const eventsTraceIdIdx = index('events_trace_id_idx').on(events.traceId);
+export const eventsProjectIdIdx = index('events_project_id_idx').on(events.projectId);
+export const eventsCreatedAtIdx = index('events_created_at_idx').on(events.createdAt);
 ```
 
 ## Logging
@@ -320,21 +332,30 @@ logger.error({ err, eventId }, 'Event processing failed');
 - **Batching**: Max 10 events or 5s interval (reduces HTTP by 10x)
 - **Non-blocking**: Async event transmission, no await required
 - **Lightweight**: < 1ms overhead per call, < 5KB bundle
+- **Shared event builder**: `buildSuccessEvent()` and `buildErrorEvent()` eliminate code duplication
 - **Stream optimization**: Anthropic emits single event at completion (not per-delta)
 - **Error callbacks**: Mid-stream errors trigger immediately without waiting for batch
 - **All providers**: OpenAI, Anthropic, Gemini with consistent error classification
 
 ### Server
 - **Connection pooling**: Drizzle + PostgreSQL for sustainable throughput
-- **Atomic operations**: Redis MULTI/EXPIRE NX pipeline (prevents orphaned keys)
+- **Atomic operations**: Redis MULTI/EXPIRE NX pipeline (prevents orphaned keys, no TOCTOU)
+- **CORS enforcement**: Rejects unknown origins in production (env: `CORS_ORIGIN`)
+- **Response compression**: Gzip enabled for all responses
+- **Request timeout**: 30 seconds enforced globally
+- **Error logging**: No query parameters logged (prevents sensitive data leakage)
 - **SSE limits**: Max 100 concurrent connections (503 if exceeded)
+- **Analytics limits**: Cost breakdown max 500 rows, timeseries max 1000 rows
 - **Export limits**: Max 10,000 rows per request with truncation indicator headers
 - **Rate limiting**: Fixed-window atomic Redis operations (no TOCTOU race)
 - **Service modularity**: Split analytics into 3 focused services with backward-compatible re-exports
-- **Query performance**: Indexed on feature, model, timestamp for fast lookups
+- **Type safety**: Typed DB query results eliminate all `any` casts
+- **Query performance**: Comprehensive indexes on feature/model/provider/createdAt for fast lookups
 
 ### Web
 - **Code splitting**: Next.js automatic, lazy-loaded charts
+- **Component memoization**: `React.memo` for chart components to prevent re-renders
+- **Data memoization**: `useMemo` for expensive data transforms
 - **Client caching**: TanStack Query (5min stale time)
 - **Time range refresh**: Auto-updated every 60 seconds on client
 - **SSE reconnection**: Exponential backoff (max 10 retries, 1s→30s cap)
@@ -352,6 +373,11 @@ router.post('/events', validateRequest(EventSchema), async (req, res) => {
   // req.body is type-safe after validation
   const { feature, model, inputTokens } = req.body;
 });
+
+// Date range validation enforced (from < to)
+const result = await db.execute(sql`
+  WHERE created_at >= ${from} AND created_at <= ${to}
+`);
 ```
 
 ### SQL Injection Prevention
@@ -361,14 +387,22 @@ router.post('/events', validateRequest(EventSchema), async (req, res) => {
 const safeQuery = db.select().from(events).where(eq(events.id, userId)); // GOOD
 
 // For raw SQL, whitelist guard enum values
-const GRANULARITY_VALUES = ['hour', 'day', 'week'] as const;
-if (!GRANULARITY_VALUES.includes(granularity)) {
-  throw new Error('Invalid granularity');
+const GROUP_BY_COLUMNS = { feature: 'feature', model: 'model', provider: 'provider' };
+const groupColumn = GROUP_BY_COLUMNS[groupBy];
+if (!groupColumn) {
+  throw new Error('Invalid groupBy');
 }
 // Only then use sql.raw()
 const result = await db.execute(
-  sql`SELECT ... GROUP BY DATE_TRUNC('${sql.raw(granularity)}', created_at)`
+  sql`SELECT ... GROUP BY ${sql.raw(groupColumn)}`
 );
+
+// Granularity values also whitelist-guarded
+const GRANULARITY_VALUES = { hour: 'hour', day: 'day', week: 'week' };
+const safeGranularity = GRANULARITY_VALUES[granularity];
+if (!safeGranularity) {
+  throw new Error('Invalid granularity');
+}
 ```
 
 ### Rate Limiting
@@ -384,16 +418,39 @@ app.post('/api/v1/events', rateLimiter, async (req, res) => {
 });
 ```
 
+### Error Handling Security
+```typescript
+// Error handler does NOT log query parameters
+logger.error({
+  err,
+  method: req.method,
+  path: req.path,  // Only path, not query params
+}, 'Request error');
+
+// Does not expose stack traces in production
+res.status(statusCode).json({
+  error: err.message,
+  ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+});
+```
+
 ### Middleware
 ```typescript
 app.use(helmet({
   contentSecurityPolicy: false, // Allow SSE
 }));
 
+app.use(compression()); // Response compression enabled
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? false : 'http://localhost:3000'),
   credentials: true,
 }));
+
+app.use((req, _res, next) => {
+  req.setTimeout(30_000); // 30 second request timeout
+  next();
+});
 
 // XSS prevention via React auto-escaping
 // All user data displayed in JSX is automatically escaped

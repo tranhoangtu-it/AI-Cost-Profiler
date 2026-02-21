@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import type { CostBreakdownItem } from '@ai-cost-profiler/shared';
 
@@ -9,7 +10,7 @@ interface CostPieChartProps {
   data: CostBreakdownItem[];
 }
 
-export function CostPieChart({ data }: CostPieChartProps) {
+export const CostPieChart = memo(function CostPieChart({ data }: CostPieChartProps) {
   return (
     <ResponsiveContainer width="100%" height={280}>
       <PieChart>
@@ -40,4 +41,4 @@ export function CostPieChart({ data }: CostPieChartProps) {
       </PieChart>
     </ResponsiveContainer>
   );
-}
+});

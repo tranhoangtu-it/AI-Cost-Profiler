@@ -2,6 +2,7 @@ import { db, events } from '../db/index.js';
 import { redis, REDIS_KEYS } from '../lib/redis.js';
 import { sql, desc, lt, eq, and, or, gte, lte } from 'drizzle-orm';
 import type { PromptAnalysis } from '@ai-cost-profiler/shared';
+import type { PromptAnalysisRow } from './types/analytics-query-result-types.js';
 import {
   decodeCursor,
   formatPaginatedResponse,
@@ -29,7 +30,7 @@ export async function getPromptAnalysis(
       AND created_at <= ${to}
   `);
 
-  const medianTokens = parseFloat((medianResult.rows[0] as any).median_tokens || '0');
+  const medianTokens = Number((medianResult.rows[0] as Record<string, unknown>).median_tokens || '0');
   const bloatThreshold = Math.floor(medianTokens * 1.5);
 
   const result = await db.execute(sql`
@@ -49,12 +50,12 @@ export async function getPromptAnalysis(
     LIMIT 20
   `);
 
-  return result.rows.map((row: any) => ({
+  return (result.rows as PromptAnalysisRow[]).map((row) => ({
     promptHash: row.prompt_hash,
     content: row.content,
-    occurrences: parseInt(row.occurrences),
-    totalCostUsd: parseFloat(row.total_cost_usd),
-    avgTokens: parseFloat(row.avg_tokens),
+    occurrences: Number(row.occurrences),
+    totalCostUsd: Number(row.total_cost_usd),
+    avgTokens: Number(row.avg_tokens),
     similarPrompts: [],
   }));
 }

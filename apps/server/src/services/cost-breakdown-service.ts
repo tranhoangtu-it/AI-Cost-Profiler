@@ -1,6 +1,7 @@
 import { db } from '../db/index.js';
 import { sql } from 'drizzle-orm';
 import type { CostBreakdownQuery, CostBreakdownItem } from '@ai-cost-profiler/shared';
+import type { CostBreakdownRow } from './types/analytics-query-result-types.js';
 
 // Whitelist of allowed groupBy columns to prevent SQL injection
 const GROUP_BY_COLUMNS: Record<string, string> = {
@@ -36,13 +37,14 @@ export async function getCostBreakdown(
       AND ${sql.raw(groupColumn)} IS NOT NULL
     GROUP BY ${sql.raw(groupColumn)}
     ORDER BY total_cost_usd DESC
+    LIMIT 500
   `);
 
-  return result.rows.map((row: any) => ({
+  return (result.rows as CostBreakdownRow[]).map((row) => ({
     dimension: row.dimension,
-    totalCostUsd: parseFloat(row.total_cost_usd),
-    totalTokens: parseInt(row.total_tokens),
-    requestCount: parseInt(row.request_count),
-    avgLatencyMs: parseFloat(row.avg_latency_ms),
+    totalCostUsd: Number(row.total_cost_usd),
+    totalTokens: Number(row.total_tokens),
+    requestCount: Number(row.request_count),
+    avgLatencyMs: Number(row.avg_latency_ms),
   }));
 }

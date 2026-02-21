@@ -1,5 +1,5 @@
 import { pgTable, uuid, text, integer, numeric, boolean, jsonb, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
+import { desc } from 'drizzle-orm';
 
 // Main events table for tracking LLM API calls
 export const events = pgTable(
@@ -31,7 +31,7 @@ export const events = pgTable(
   },
   (table) => ({
     // Cursor-based pagination composite index (critical for performance)
-    createdAtIdIdx: index('events_created_at_id_idx').on(table.createdAt.desc(), table.id),
+    createdAtIdIdx: index('events_created_at_id_idx').on(desc(table.createdAt), desc(table.id)),
     // Filter indexes
     featureIdx: index('events_feature_idx').on(table.feature),
     modelIdx: index('events_model_idx').on(table.model),
@@ -40,6 +40,7 @@ export const events = pgTable(
     featureTimeIdx: index('events_feature_time_idx').on(table.feature, table.createdAt),
     userTimeIdx: index('events_user_time_idx').on(table.userId, table.createdAt),
     traceIdIdx: index('events_trace_id_idx').on(table.traceId),
+    projectIdIdx: index('events_project_id_idx').on(table.projectId),
   })
 );
 

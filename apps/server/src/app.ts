@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import { eventRouter } from './routes/event-routes.js';
 import { analyticsRouter } from './routes/analytics-routes.js';
 import { streamRouter } from './routes/stream-routes.js';
@@ -20,12 +21,20 @@ export function createApp(): express.Application {
 
   // CORS configuration
   app.use(cors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? false : 'http://localhost:3000'),
     credentials: true,
   }));
 
   // Body parser
   app.use(express.json({ limit: '10mb' }));
+
+  // Response compression (skip SSE to avoid buffering)
+  app.use(compression({
+    filter: (req, res) => {
+      if (req.headers.accept === 'text/event-stream') return false;
+      return compression.filter(req, res);
+    },
+  }));
 
   // Health check
   app.get('/health', (req, res) => {

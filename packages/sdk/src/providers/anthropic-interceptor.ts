@@ -1,13 +1,11 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import type { LlmEvent } from '@ai-cost-profiler/shared';
 import {
-  calculateCost,
   generateTraceId,
   generateSpanId,
 } from '@ai-cost-profiler/shared';
 import type { EventBatcher } from '../transport/event-batcher.js';
 import { wrapAnthropicStream } from './streaming-helpers.js';
-import { classifyApiError } from './error-classifier.js';
+import { buildSuccessEvent, buildErrorEvent, type EventContext } from './shared-event-builder.js';
 
 /**
  * Intercept Anthropic client calls to capture usage and cost metrics
@@ -35,130 +33,47 @@ export function createAnthropicInterceptor(
 
                   const response = await messagesTarget.create(...args);
 
-                  // Handle streaming response - emits exactly 1 event at stream end
+                  // Handle streaming response
                   if (isStreaming) {
                     const model = params?.model ?? 'unknown';
+                    const ctx: EventContext = { traceId, spanId, feature, userId, provider: 'anthropic', model, isStreaming: true };
 
                     return wrapAnthropicStream(
                       response as any,
                       (usage) => {
-                        const endTime = performance.now();
-                        const latencyMs = Math.round(endTime - startTime);
+                        const latencyMs = Math.round(performance.now() - startTime);
                         const inputTokens = usage.input_tokens ?? 0;
                         const outputTokens = usage.output_tokens ?? 0;
                         const cachedTokens = usage.cache_read_input_tokens ?? 0;
-
-                        const event: LlmEvent = {
-                          traceId,
-                          spanId,
-                          feature,
-                          userId,
-                          provider: 'anthropic',
-                          model,
-                          inputTokens,
-                          outputTokens,
-                          cachedTokens,
-                          latencyMs,
-                          estimatedCostUsd: calculateCost(model, inputTokens, outputTokens, cachedTokens),
-                          timestamp: new Date().toISOString(),
-                          isStreaming: true,
-                          retryCount: 0,
-                          isError: false,
-                        };
-
-                        batcher.add(event);
+                        batcher.add(buildSuccessEvent(ctx, { inputTokens, outputTokens, cachedTokens }, latencyMs));
                       },
                       (error) => {
-                        const endTime = performance.now();
-                        const latencyMs = Math.round(endTime - startTime);
-
-                        const event: LlmEvent = {
-                          traceId,
-                          spanId,
-                          feature,
-                          userId,
-                          provider: 'anthropic',
-                          model,
-                          inputTokens: 0,
-                          outputTokens: 0,
-                          cachedTokens: 0,
-                          latencyMs,
-                          estimatedCostUsd: 0,
-                          timestamp: new Date().toISOString(),
-                          isStreaming: true,
-                          retryCount: 0,
-                          isError: true,
-                          errorCode: classifyApiError(error),
-                          metadata: { error: error instanceof Error ? error.message : String(error) },
-                        };
-
-                        batcher.add(event);
+                        const latencyMs = Math.round(performance.now() - startTime);
+                        batcher.add(buildErrorEvent(ctx, latencyMs, error));
                       }
                     );
                   }
 
                   // Handle non-streaming response
-                  const endTime = performance.now();
-                  const latencyMs = Math.round(endTime - startTime);
-
+                  const latencyMs = Math.round(performance.now() - startTime);
                   const usage = (response as any).usage;
                   if (usage) {
+                    const model = (response as any).model;
+                    const ctx: EventContext = { traceId, spanId, feature, userId, provider: 'anthropic', model, isStreaming: false };
                     const inputTokens = usage.input_tokens ?? 0;
                     const outputTokens = usage.output_tokens ?? 0;
                     const cachedTokens = usage.cache_read_input_tokens ?? 0;
-                    const model = (response as any).model;
-
-                    const event: LlmEvent = {
-                      traceId,
-                      spanId,
-                      feature,
-                      userId,
-                      provider: 'anthropic',
-                      model,
-                      inputTokens,
-                      outputTokens,
-                      cachedTokens,
-                      latencyMs,
-                      estimatedCostUsd: calculateCost(model, inputTokens, outputTokens, cachedTokens),
-                      timestamp: new Date().toISOString(),
-                      isStreaming: false,
-                      retryCount: 0,
-                      isError: false,
-                    };
-
-                    batcher.add(event);
+                    batcher.add(buildSuccessEvent(ctx, { inputTokens, outputTokens, cachedTokens }, latencyMs));
                   }
 
                   return response;
                 } catch (error) {
-                  const endTime = performance.now();
-                  const latencyMs = Math.round(endTime - startTime);
-
+                  const latencyMs = Math.round(performance.now() - startTime);
                   const params = args[0];
                   const model = params?.model ?? 'unknown';
                   const isStreaming = params?.stream === true;
-
-                  const event: LlmEvent = {
-                    traceId,
-                    spanId,
-                    feature,
-                    userId,
-                    provider: 'anthropic',
-                    model,
-                    inputTokens: 0,
-                    outputTokens: 0,
-                    cachedTokens: 0,
-                    latencyMs,
-                    estimatedCostUsd: 0,
-                    timestamp: new Date().toISOString(),
-                    isStreaming,
-                    retryCount: 0,
-                    isError: true,
-                    errorCode: classifyApiError(error),
-                    metadata: { error: error instanceof Error ? error.message : String(error) },
-                  };
-
-                  batcher.add(event);
+                  const ctx: EventContext = { traceId, spanId, feature, userId, provider: 'anthropic', model, isStreaming };
+                  batcher.add(buildErrorEvent(ctx, latencyMs, error));
                   throw error;
                 }
               };

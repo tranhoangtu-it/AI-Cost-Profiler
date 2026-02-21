@@ -162,6 +162,9 @@ profileAI()
 ├── AnthropicInterceptor → Proxy for Anthropic client
 ├── GeminiInterceptor → Proxy for Gemini client
 ├── classifyApiError() → Shared error classification
+├── buildSuccessEvent() → Unified event construction (NEW)
+├── buildErrorEvent() → Unified error event construction (NEW)
+├── StreamHelper → Stream wrapping with error callbacks (NEW)
 └── EventBatcher → Batches and sends events
 ```
 
@@ -221,15 +224,16 @@ Routes (HTTP) → Services (Business Logic) → ORM (Data Access) → Database
 **Services** (modular architecture):
 - `event-processor.ts` - Event validation, storage, Redis broadcast
 - `analytics-service.ts` - Main re-export module (backward compatible)
-- `cost-breakdown-service.ts` - Cost breakdown by feature/model
+- `cost-breakdown-service.ts` - Cost breakdown by feature/model (max 500 results, NEW)
 - `flamegraph-service.ts` - Hierarchical cost aggregation
-- `timeseries-service.ts` - Time-series data with configurable granularity
+- `timeseries-service.ts` - Time-series data with configurable granularity (max 1000 results, NEW)
 - `sse-manager.ts` - SSE lifecycle, Redis pub/sub, connection limit (100 clients max)
+- `types/analytics-query-result-types.ts` - Typed DB query result interfaces (NEW)
 
 **Middleware**:
 - `request-validator.ts` - Zod schema validation
-- `error-handler.ts` - Global error handling with logging
-- `rate-limiter.ts` - Fixed-window rate limiter using atomic Redis MULTI/EXPIRE NX
+- `error-handler.ts` - Global error handling (without logging query params for security)
+- `rate-limiter.ts` - Fixed-window rate limiter using atomic Redis MULTI/EXPIRE NX (no TOCTOU race)
 
 ### Web App (`apps/web`)
 
@@ -267,29 +271,44 @@ components/
 
 ## Database Schema
 
-### Events Table (PostgreSQL)
+### Events Table (PostgreSQL - Extended)
 ```sql
 CREATE TABLE events (
-  id TEXT PRIMARY KEY,
-  feature TEXT NOT NULL,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  trace_id TEXT NOT NULL,
+  span_id TEXT NOT NULL,
+  parent_span_id TEXT,
+  project_id TEXT NOT NULL DEFAULT 'default',
+  feature TEXT,
+  user_id TEXT,
+  provider TEXT NOT NULL,
   model TEXT NOT NULL,
   input_tokens INTEGER NOT NULL,
   output_tokens INTEGER NOT NULL,
-  total_cost NUMERIC(10, 6) NOT NULL,
-  latency INTEGER NOT NULL,
-  timestamp TIMESTAMP NOT NULL,
-  metadata JSONB
+  cached_tokens INTEGER DEFAULT 0,
+  latency_ms INTEGER NOT NULL,
+  estimated_cost_usd NUMERIC(12, 6),
+  verified_cost_usd NUMERIC(12, 6),
+  is_cache_hit BOOLEAN DEFAULT FALSE,
+  is_streaming BOOLEAN DEFAULT FALSE,
+  error_code TEXT,
+  retry_count INTEGER DEFAULT 0,
+  is_error BOOLEAN DEFAULT FALSE,
+  metadata JSONB,
+  created_at TIMESTAMP WITH TIMEZONE NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX events_feature_idx ON events(feature);
-CREATE INDEX events_model_idx ON events(model);
-CREATE INDEX events_timestamp_idx ON events(timestamp);
 ```
 
 **Indexes**:
-- `feature` - Cost breakdown queries
-- `model` - Model distribution queries
-- `timestamp` - Time-series queries
+- `events_created_at_id_idx` (createdAt, id) - Cursor pagination (critical)
+- `events_feature_idx` - Cost breakdown queries
+- `events_model_idx` - Model distribution queries
+- `events_provider_idx` - Provider filtering
+- `events_feature_time_idx` (feature, createdAt) - Feature queries with time range
+- `events_user_time_idx` (userId, createdAt) - User queries with time range
+- `events_trace_id_idx` - Trace correlation
+- `events_project_id_idx` - Project filtering
+- `events_created_at_idx` - Time-series queries (critical)
 
 **Drizzle Schema** (`apps/server/src/db/schema.ts`):
 ```typescript
@@ -434,16 +453,20 @@ Headers: X-Export-Row-Limit: 10000, X-Export-Truncated: true|false
 
 ## Security Architecture
 
-### MVP (v1.0 - Hardened)
+### MVP (v1.0.1 - Hardened Security)
 - Public API endpoints (no auth required)
-- CORS configurable via `CORS_ORIGIN` env var
+- CORS configurable via `CORS_ORIGIN` env var (rejects unknown origins in production)
+- Response compression enabled (gzip)
 - Helmet middleware for security headers (CSP disabled for SSE)
+- Request timeout: 30 seconds enforced globally
+- Error handler: Does NOT log query parameters (prevents sensitive data leakage)
 - Input validation via Zod schemas (all endpoints)
 - SQL injection prevention: Parameterized Drizzle queries + whitelist guards for raw SQL
-- Rate limiting: Atomic Redis MULTI pipeline (fixed-window, no orphaned keys)
+- Rate limiting: Atomic Redis MULTI pipeline (fixed-window, no orphaned keys, no TOCTOU race)
 - Rate limit enforcement: 429 response, per-IP or per-endpoint
 - SSE limits: 100 concurrent connections (503 if exceeded)
-- Export limits: 10K rows max (prevents OOM attacks)
+- Analytics limits: Cost breakdown max 500 rows, timeseries max 1000 rows (prevents OOM attacks)
+- Export limits: 10K rows max with truncation indicator (prevents OOM attacks)
 - XSS prevention: React auto-escaping + no innerHTML usage
 
 ### Future (Production - v2.0)

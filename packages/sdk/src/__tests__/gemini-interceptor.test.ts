@@ -221,7 +221,7 @@ describe('Gemini Interceptor', () => {
     });
   });
 
-  describe('classifyGeminiError', () => {
+  describe('error classification (via Gemini interceptor)', () => {
     it('should classify rate limit errors', async () => {
       const mockModel = {
         model: 'gemini-1.5-flash',

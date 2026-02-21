@@ -80,8 +80,10 @@ packages/sdk/src/
 ├── providers/
 │   ├── openai-interceptor.ts    # OpenAI Proxy wrapper
 │   ├── anthropic-interceptor.ts # Anthropic Proxy wrapper
+│   ├── gemini-interceptor.ts    # Gemini Proxy wrapper
 │   ├── error-classifier.ts      # Shared error classification
-│   └── gemini-interceptor.ts    # Gemini Proxy wrapper
+│   ├── shared-event-builder.ts  # Shared event construction (NEW)
+│   └── streaming-helpers.ts     # Stream handling utilities
 ├── transport/
 │   └── event-batcher.ts         # Batch events (10 events/5s)
 ├── utils/
@@ -99,6 +101,8 @@ packages/sdk/src/
 | `providers/anthropic-interceptor.ts` | Anthropic wrapper | `createAnthropicInterceptor()` |
 | `providers/gemini-interceptor.ts` | Gemini wrapper | `createGeminiInterceptor()` |
 | `providers/error-classifier.ts` | Shared error classification | `classifyApiError()` |
+| `providers/shared-event-builder.ts` | Unified event construction (NEW) | `buildSuccessEvent()`, `buildErrorEvent()` |
+| `providers/streaming-helpers.ts` | Stream handling utilities | Stream wrapping with error callbacks |
 | `transport/event-batcher.ts` | Event batching | `EventBatcher` class |
 | `utils/detect-provider.ts` | Provider detection | `detectProvider(client)` |
 
@@ -138,7 +142,7 @@ apps/server/src/
 │   └── redis.ts                 # Redis client
 ├── middleware/
 │   ├── request-validator.ts     # Zod validation middleware
-│   ├── error-handler.ts         # Global error handler
+│   ├── error-handler.ts         # Global error handler (no query logging)
 │   └── rate-limiter.ts          # Fixed-window rate limiter (atomic Redis MULTI)
 ├── routes/
 │   ├── event-routes.ts          # POST /api/v1/events
@@ -148,11 +152,13 @@ apps/server/src/
 ├── services/
 │   ├── event-processor.ts       # Event storage + broadcast
 │   ├── analytics-service.ts     # Analytics queries (re-exports split services)
-│   ├── cost-breakdown-service.ts# Cost breakdown logic
+│   ├── cost-breakdown-service.ts# Cost breakdown logic (LIMITED to 500 results)
 │   ├── flamegraph-service.ts    # Flamegraph data aggregation
-│   ├── timeseries-service.ts    # Time-series data aggregation
+│   ├── timeseries-service.ts    # Time-series data (LIMITED to 1000 results)
 │   ├── sse-manager.ts           # SSE connection manager (maxClients=100)
-│   └── prompt-similarity-service.ts # Prompt embedding + similarity
+│   ├── prompt-similarity-service.ts # Prompt embedding + similarity
+│   └── types/
+│       └── analytics-query-result-types.ts # Typed DB result interfaces (NEW)
 ├── app.ts                       # Express app factory
 └── index.ts                     # Server entry point
 ```
@@ -195,9 +201,15 @@ export const costAggregates = pgTable('cost_aggregates', {...});
 ```
 
 **Indexes** (for query performance):
+- `events_created_at_id_idx` on (createdAt, id) - cursor pagination
 - `events_feature_idx` on feature
 - `events_model_idx` on model
-- `events_timestamp_idx` on timestamp (critical for time-series)
+- `events_provider_idx` on provider
+- `events_feature_time_idx` on (feature, createdAt) - feature queries
+- `events_user_time_idx` on (userId, createdAt) - user queries
+- `events_trace_id_idx` on traceId
+- `events_project_id_idx` on projectId
+- `events_created_at_idx` on createdAt - time-series queries (critical)
 
 **Tests** (16 files):
 - `event-routes.test.ts` - Event ingestion tests
@@ -419,14 +431,46 @@ pnpm test:smoke               # SDK → Server smoke test
 ### Git Hooks
 - No pre-commit hooks in MVP
 
-## Recent Improvements (v1.0)
+## Recent Improvements (v1.0.1 - Code Refactoring)
 
-1. **Security** (Critical): SQL injection prevention - all export routes use parameterized Drizzle queries; comprehensive Zod validation for date formats
-2. **SDK**: Shared `error-classifier.ts` maps provider errors to standard codes; Anthropic streaming emits single event at completion; mid-stream error callbacks added
-3. **Backend**: Rate limiter uses atomic Redis MULTI/EXPIRE NX pipeline (no TOCTOU); SSE enforces maxClients=100 (503 if exceeded); analytics modularized into 3 focused services with re-exports
-4. **Frontend**: Time range auto-refreshes every 60s; export errors shown via non-blocking toast; sidebar nav uses exact path matching; SSE reconnection with exponential backoff (max 10 retries, cap 30s)
-5. **Export Limits**: Enforces 10K row limit per request with truncation indicator headers
-6. **Seed Data**: isCacheHit correctly set based on cachedTokens > 0; generates realistic cache hit percentages (~30%)
+1. **Security** (Critical)
+   - CORS now rejects unknown origins in production (env: `CORS_ORIGIN`, default: false)
+   - Response compression enabled (gzip)
+   - Error handler no longer logs query parameters (prevents sensitive data leakage)
+   - Request timeout: 30 seconds enforced globally
+   - All Drizzle queries parameterized; raw SQL uses whitelist guards
+
+2. **Type Safety** (NEW)
+   - Added `apps/server/src/services/types/analytics-query-result-types.ts` with typed interfaces
+   - Removed all `any` casts in service files
+   - Query results: `CostBreakdownRow`, `FlamegraphRow`, `TimeseriesRow`, `PromptAnalysisRow`
+   - Improved IDE autocomplete and compile-time type checking
+
+3. **SDK Refactoring** (Code consolidation ~40% LOC reduction)
+   - New shared event builder: `packages/sdk/src/providers/shared-event-builder.ts`
+   - `buildSuccessEvent()` and `buildErrorEvent()` exported functions
+   - All interceptors refactored to use shared builder
+   - Streaming error handling centralized in `streaming-helpers.ts`
+   - Fixed Gemini streaming: `cachedTokens` bug in completion handling
+
+4. **Database** (Improved performance)
+   - Added standalone indexes: `projectId` and `createdAt`
+   - Composite indexes: (feature, createdAt), (userId, createdAt), (provider)
+   - Date range validation: `from < to` enforced
+   - Cursor pagination ready: (createdAt, id) composite index
+
+5. **Analytics Service** (Modularized)
+   - Split monolithic service into 3 focused modules
+   - `cost-breakdown-service.ts` - limited to 500 results
+   - `timeseries-service.ts` - limited to 1000 results
+   - `flamegraph-service.ts` - hierarchical aggregation
+   - Backward compatibility maintained via re-exports
+
+6. **Frontend** (Performance improvements)
+   - Chart components wrapped with `React.memo`
+   - Data transforms memoized with `useMemo`
+   - SSE reconnection with exponential backoff (max 10 retries, cap 30s)
+   - Time range auto-refreshes every 60s
 
 ## Known Limitations
 
