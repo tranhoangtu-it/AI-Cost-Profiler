@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Cost Profiler — Track, Analyze & Optimize Your LLM Spending</title>
+  <meta name="description" content="Open-source observability platform for AI/LLM costs. Monitor OpenAI, Anthropic & Gemini spending in real-time with zero code changes." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg-base: #0a0e1a;
+      --bg-surface: #111827;
+      --bg-elevated: #1a2235;
+      --bg-muted: #242f45;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --accent-glow: rgba(99, 102, 241, 0.25);
+      --green: #22c55e;
+      --green-muted: rgba(34, 197, 94, 0.15);
+      --yellow: #eab308;
+      --yellow-muted: rgba(234, 179, 8, 0.12);
+      --red: #ef4444;
+      --red-muted: rgba(239, 68, 68, 0.12);
+      --sky: #0ea5e9;
+      --sky-muted: rgba(14, 165, 233, 0.12);
+      --border: #1e293b;
+      --border-light: #334155;
+      --radius: 12px;
+      --radius-sm: 8px;
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* ── Utilities ── */
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+    .text-gradient {
+      background: linear-gradient(135deg, var(--accent-light), var(--sky), var(--green));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 20px;
+      font-size: 13px; font-weight: 500; letter-spacing: 0.02em;
+    }
+    .badge-accent { background: var(--accent-glow); color: var(--accent-light); border: 1px solid rgba(99,102,241,0.25); }
+    .badge-green { background: var(--green-muted); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+
+    /* ── Navigation ── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(10, 14, 26, 0.8);
+      backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .inner {
+      max-width: 1200px; margin: 0 auto; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between; height: 64px;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 18px; font-weight: 700; text-decoration: none; color: var(--text-primary);
+    }
+    .logo-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--sky));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 800; color: #fff;
+    }
+    .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
+    .nav-links a {
+      color: var(--text-secondary); text-decoration: none; font-size: 14px; font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 22px; border-radius: var(--radius-sm);
+      font-size: 14px; font-weight: 600; text-decoration: none;
+      transition: all 0.2s; cursor: pointer; border: none;
+    }
+    .btn-primary {
+      background: var(--accent); color: #fff;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    .btn-primary:hover { background: var(--accent-light); transform: translateY(-1px); }
+    .btn-outline {
+      background: transparent; color: var(--text-primary);
+      border: 1px solid var(--border-light);
+    }
+    .btn-outline:hover { background: var(--bg-elevated); border-color: var(--text-muted); }
+    .btn-large { padding: 14px 32px; font-size: 16px; border-radius: var(--radius); }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 160px 0 100px; text-align: center; position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; top: -200px; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 600px;
+      background: radial-gradient(ellipse, var(--accent-glow) 0%, transparent 70%);
+      pointer-events: none; opacity: 0.6;
+    }
+    .hero h1 {
+      font-size: clamp(40px, 6vw, 72px); font-weight: 800;
+      line-height: 1.1; letter-spacing: -0.03em;
+      margin-bottom: 24px; position: relative;
+    }
+    .hero p.subtitle {
+      font-size: clamp(17px, 2vw, 20px); color: var(--text-secondary);
+      max-width: 640px; margin: 0 auto 40px; line-height: 1.7;
+    }
+    .hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; position: relative; }
+
+    .hero-code {
+      margin-top: 60px; position: relative;
+      max-width: 700px; margin-left: auto; margin-right: auto;
+    }
+    .code-block {
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px 28px;
+      text-align: left; font-family: var(--font-mono); font-size: 14px;
+      line-height: 1.8; overflow-x: auto;
+    }
+    .code-block .comment { color: var(--text-muted); }
+    .code-block .keyword { color: var(--accent-light); }
+    .code-block .string { color: var(--green); }
+    .code-block .func { color: var(--sky); }
+    .code-block .punct { color: var(--text-muted); }
+
+    /* ── Stats ── */
+    .stats {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+      background: var(--border); border-radius: var(--radius);
+      overflow: hidden; margin: 80px auto 0; max-width: 900px;
+      position: relative;
+    }
+    .stat {
+      background: var(--bg-surface); padding: 32px 24px; text-align: center;
+    }
+    .stat-value {
+      font-size: 36px; font-weight: 800; font-family: var(--font-mono);
+      margin-bottom: 4px;
+    }
+    .stat-label { font-size: 13px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* ── Section base ── */
+    section { padding: 100px 0; }
+    section h2 {
+      font-size: clamp(28px, 4vw, 42px); font-weight: 800;
+      letter-spacing: -0.02em; margin-bottom: 16px;
+    }
+    section .section-sub {
+      font-size: 17px; color: var(--text-secondary); max-width: 560px; margin-bottom: 60px;
+    }
+    .section-header { text-align: center; }
+    .section-header .section-sub { margin-left: auto; margin-right: auto; }
+
+    /* ── Features Grid ── */
+    .features-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 20px;
+    }
+    .feature-card {
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 32px;
+      transition: border-color 0.3s, transform 0.3s;
+    }
+    .feature-card:hover { border-color: var(--border-light); transform: translateY(-4px); }
+    .feature-icon {
+      width: 48px; height: 48px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; margin-bottom: 20px;
+    }
+    .feature-card h3 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+    .feature-card p { font-size: 14px; color: var(--text-secondary); line-height: 1.7; }
+
+    /* ── Dashboard Preview ── */
+    .dashboard-preview {
+      position: relative; margin-top: 60px;
+      border-radius: var(--radius); overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+    .dash-top-bar {
+      display: flex; align-items: center; gap: 8px; padding: 12px 20px;
+      border-bottom: 1px solid var(--border); background: var(--bg-elevated);
+    }
+    .dash-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dash-content { padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .dash-metric {
+      background: var(--bg-elevated); border-radius: var(--radius-sm); padding: 20px;
+      border: 1px solid var(--border);
+    }
+    .dash-metric-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+    .dash-metric-value { font-size: 28px; font-weight: 700; font-family: var(--font-mono); }
+    .dash-chart {
+      grid-column: 1 / -1; background: var(--bg-elevated);
+      border-radius: var(--radius-sm); padding: 20px;
+      border: 1px solid var(--border); height: 200px;
+      display: flex; align-items: flex-end; gap: 6px; padding-top: 40px;
+    }
+    .chart-bar {
+      flex: 1; border-radius: 4px 4px 0 0;
+      background: linear-gradient(to top, var(--accent), var(--accent-light));
+      opacity: 0.8; min-height: 10px;
+      animation: grow-bar 1s ease-out forwards;
+      transform-origin: bottom;
+    }
+    @keyframes grow-bar { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+
+    /* ── Providers ── */
+    .providers {
+      display: flex; justify-content: center; gap: 48px; flex-wrap: wrap;
+      margin-top: 60px;
+    }
+    .provider-card {
+      display: flex; flex-direction: column; align-items: center; gap: 16px;
+      padding: 32px 40px; background: var(--bg-surface);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      transition: border-color 0.3s;
+      min-width: 200px;
+    }
+    .provider-card:hover { border-color: var(--border-light); }
+    .provider-logo {
+      width: 56px; height: 56px; border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; font-weight: 800;
+    }
+    .provider-name { font-size: 16px; font-weight: 600; }
+    .provider-models { font-size: 12px; color: var(--text-muted); text-align: center; }
+
+    /* ── Architecture ── */
+    .arch-flow {
+      display: flex; align-items: center; justify-content: center;
+      gap: 12px; flex-wrap: wrap; margin-top: 60px;
+    }
+    .arch-node {
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px 28px;
+      text-align: center; min-width: 160px;
+      transition: border-color 0.3s;
+    }
+    .arch-node:hover { border-color: var(--accent); }
+    .arch-node-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+    .arch-node-sub { font-size: 12px; color: var(--text-muted); }
+    .arch-arrow { font-size: 20px; color: var(--text-muted); flex-shrink: 0; }
+
+    /* ── Pricing Table ── */
+    .pricing-table {
+      width: 100%; border-collapse: separate; border-spacing: 0;
+      background: var(--bg-surface); border-radius: var(--radius);
+      overflow: hidden; border: 1px solid var(--border);
+      margin-top: 40px;
+    }
+    .pricing-table th {
+      padding: 14px 20px; text-align: left;
+      font-size: 12px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--text-muted);
+      background: var(--bg-elevated); border-bottom: 1px solid var(--border);
+    }
+    .pricing-table td {
+      padding: 12px 20px; font-size: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .pricing-table tr:last-child td { border-bottom: none; }
+    .pricing-table .model-name { font-weight: 600; font-family: var(--font-mono); font-size: 13px; }
+    .pricing-table .price { font-family: var(--font-mono); color: var(--green); font-size: 13px; }
+
+    /* ── CTA ── */
+    .cta {
+      text-align: center; padding: 100px 0 120px; position: relative;
+    }
+    .cta::before {
+      content: '';
+      position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 600px; height: 400px;
+      background: radial-gradient(ellipse, var(--accent-glow) 0%, transparent 70%);
+      pointer-events: none; opacity: 0.4;
+    }
+    .cta h2 { margin-bottom: 16px; position: relative; }
+    .cta p { color: var(--text-secondary); margin-bottom: 40px; position: relative; }
+    .cta .hero-actions { position: relative; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border); padding: 40px 0;
+      text-align: center; color: var(--text-muted); font-size: 14px;
+    }
+    footer a { color: var(--text-secondary); text-decoration: none; }
+    footer a:hover { color: var(--text-primary); }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .nav-links { display: none; }
+      .dash-content { grid-template-columns: 1fr; }
+      .arch-flow { flex-direction: column; }
+      .arch-arrow { transform: rotate(90deg); }
+      .features-grid { grid-template-columns: 1fr; }
+      .providers { gap: 16px; }
+      .provider-card { min-width: 160px; padding: 24px; }
+    }
+
+    /* ── Animations ── */
+    .fade-up {
+      opacity: 0; transform: translateY(30px);
+      transition: opacity 0.7s ease, transform 0.7s ease;
+    }
+    .fade-up.visible { opacity: 1; transform: translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- ═══════ Navigation ═══════ -->
+<nav>
+  <div class="inner">
+    <a href="#" class="logo">
+      <div class="logo-icon">AI</div>
+      <span>Cost Profiler</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#providers">Providers</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#pricing">Pricing</a></li>
+      <li><a href="#get-started" class="btn btn-primary" style="padding:8px 18px;">Get Started</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ═══════ Hero ═══════ -->
+<section class="hero">
+  <div class="container">
+    <span class="badge badge-accent">Open Source &bull; MIT License</span>
+    <h1 style="margin-top: 20px;">
+      Stop guessing your<br /><span class="text-gradient">AI costs.</span>
+    </h1>
+    <p class="subtitle">
+      Real-time observability for LLM spending. Track every token, every model,
+      every feature &mdash; across OpenAI, Anthropic &amp; Google Gemini.
+      Zero code changes with our SDK interceptor.
+    </p>
+    <div class="hero-actions">
+      <a href="#get-started" class="btn btn-primary btn-large">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg>
+        Quick Start
+      </a>
+      <a href="https://github.com" class="btn btn-outline btn-large" target="_blank">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        GitHub
+      </a>
+    </div>
+
+    <div class="hero-code fade-up">
+      <div class="code-block">
+        <span class="comment">// 3 lines. That's it. Every LLM call is now tracked.</span><br />
+        <span class="keyword">import</span> { <span class="func">withProfiling</span> } <span class="keyword">from</span> <span class="string">'@ai-cost-profiler/sdk'</span><span class="punct">;</span><br /><br />
+        <span class="keyword">const</span> openai <span class="punct">=</span> <span class="func">withProfiling</span><span class="punct">(</span><span class="keyword">new</span> <span class="func">OpenAI</span><span class="punct">(), {</span><br />
+        &nbsp;&nbsp;serverUrl<span class="punct">:</span> <span class="string">'https://your-server.com'</span><span class="punct">,</span><br />
+        &nbsp;&nbsp;feature<span class="punct">:</span> <span class="string">'chat-assistant'</span><br />
+        <span class="punct">});</span><br /><br />
+        <span class="comment">// Use openai as normal &mdash; costs are captured automatically</span>
+      </div>
+    </div>
+
+    <div class="stats fade-up">
+      <div class="stat">
+        <div class="stat-value text-gradient">3</div>
+        <div class="stat-label">LLM Providers</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" style="color: var(--green);">17+</div>
+        <div class="stat-label">Models Tracked</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" style="color: var(--sky);">&lt;1ms</div>
+        <div class="stat-label">SDK Overhead</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" style="color: var(--yellow);">100%</div>
+        <div class="stat-label">Open Source</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Features ═══════ -->
+<section id="features">
+  <div class="container">
+    <div class="section-header fade-up">
+      <span class="badge badge-green">Features</span>
+      <h2 style="margin-top: 16px;">Everything you need to<br /><span class="text-gradient">control AI spend.</span></h2>
+      <p class="section-sub">
+        From real-time dashboards to prompt-level cost analysis. Built for engineering teams shipping AI products.
+      </p>
+    </div>
+
+    <div class="features-grid">
+      <div class="feature-card fade-up">
+        <div class="feature-icon" style="background: var(--accent-glow); color: var(--accent-light);">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        </div>
+        <h3>Real-Time Cost Streaming</h3>
+        <p>Server-Sent Events deliver cost updates the instant they happen. Watch your spending as it accumulates with sub-second latency.</p>
+      </div>
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon" style="background: var(--green-muted); color: var(--green);">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        </div>
+        <h3>Feature-Level Breakdown</h3>
+        <p>Tag every API call with a feature name. Know exactly which product feature is burning through your budget &mdash; chat, search, RAG, agents, etc.</p>
+      </div>
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon" style="background: var(--sky-muted); color: var(--sky);">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+        </div>
+        <h3>Interactive Flamegraph</h3>
+        <p>Hierarchical cost visualization. Drill from project to feature to model. Click to zoom, instantly spot the biggest cost centers.</p>
+      </div>
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon" style="background: var(--yellow-muted); color: var(--yellow);">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        </div>
+        <h3>Prompt Bloat Detection</h3>
+        <p>Automatically identifies duplicate and overweight prompts. Find prompts costing you the most and optimize them for up to 40% savings.</p>
+      </div>
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon" style="background: var(--red-muted); color: var(--red);">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3>Zero Code Changes</h3>
+        <p>The SDK uses JavaScript Proxy to intercept API calls transparently. Wrap your client once &mdash; every call is tracked automatically, including streaming.</p>
+      </div>
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon" style="background: rgba(168,85,247,0.12); color: #a855f7;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+        </div>
+        <h3>CSV &amp; JSON Export</h3>
+        <p>Export events and cost summaries with one click. Filter by date, feature, model, or provider. Feed data into your BI tools or spreadsheets.</p>
+      </div>
+    </div>
+
+    <!-- Dashboard Preview -->
+    <div class="dashboard-preview fade-up" style="margin-top: 80px;">
+      <div class="dash-top-bar">
+        <div class="dash-dot" style="background:#ef4444;"></div>
+        <div class="dash-dot" style="background:#eab308;"></div>
+        <div class="dash-dot" style="background:#22c55e;"></div>
+        <span style="margin-left:12px; font-size:13px; color:var(--text-muted);">AI Cost Profiler &mdash; Dashboard</span>
+      </div>
+      <div class="dash-content">
+        <div class="dash-metric">
+          <div class="dash-metric-label">Total Cost (24h)</div>
+          <div class="dash-metric-value" style="color: var(--green);">$47.82</div>
+        </div>
+        <div class="dash-metric">
+          <div class="dash-metric-label">API Calls</div>
+          <div class="dash-metric-value" style="color: var(--sky);">12,847</div>
+        </div>
+        <div class="dash-metric">
+          <div class="dash-metric-label">Total Tokens</div>
+          <div class="dash-metric-value" style="color: var(--accent-light);">4.2M</div>
+        </div>
+        <div class="dash-metric">
+          <div class="dash-metric-label">Avg Latency</div>
+          <div class="dash-metric-value" style="color: var(--yellow);">342ms</div>
+        </div>
+        <div class="dash-chart" id="animated-chart"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Providers ═══════ -->
+<section id="providers" style="background: var(--bg-surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+  <div class="container">
+    <div class="section-header fade-up">
+      <span class="badge badge-accent">Multi-Provider</span>
+      <h2 style="margin-top: 16px;">One SDK. <span class="text-gradient">Every provider.</span></h2>
+      <p class="section-sub">
+        Unified cost tracking across all major LLM providers. Auto-detects provider from your client instance.
+      </p>
+    </div>
+
+    <div class="providers fade-up">
+      <div class="provider-card">
+        <div class="provider-logo" style="background: linear-gradient(135deg, #10a37f, #1a7f64); color: #fff;">O</div>
+        <div class="provider-name">OpenAI</div>
+        <div class="provider-models">GPT-4o &bull; GPT-4 Turbo<br />GPT-3.5 &bull; Embeddings</div>
+      </div>
+      <div class="provider-card">
+        <div class="provider-logo" style="background: linear-gradient(135deg, #d4a574, #c6956b); color: #1a1a2e;">A</div>
+        <div class="provider-name">Anthropic</div>
+        <div class="provider-models">Claude Sonnet 4 &bull; Opus 3<br />Sonnet 3.5 &bull; Haiku 3.5</div>
+      </div>
+      <div class="provider-card">
+        <div class="provider-logo" style="background: linear-gradient(135deg, #4285f4, #34a853); color: #fff;">G</div>
+        <div class="provider-name">Google Gemini</div>
+        <div class="provider-models">Gemini 2.0 Flash &bull; 1.5 Pro<br />1.5 Flash &bull; 1.0 Pro</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Architecture ═══════ -->
+<section id="architecture">
+  <div class="container">
+    <div class="section-header fade-up">
+      <span class="badge badge-green">Architecture</span>
+      <h2 style="margin-top: 16px;">Built for <span class="text-gradient">production scale.</span></h2>
+      <p class="section-sub">
+        Event-driven pipeline with Redis pub/sub, PostgreSQL persistence, and real-time SSE streaming.
+      </p>
+    </div>
+
+    <div class="arch-flow fade-up">
+      <div class="arch-node">
+        <div class="arch-node-title" style="color: var(--sky);">Your App</div>
+        <div class="arch-node-sub">SDK Interceptor</div>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-node">
+        <div class="arch-node-title" style="color: var(--accent-light);">Event Batcher</div>
+        <div class="arch-node-sub">Buffered Transport</div>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-node">
+        <div class="arch-node-title" style="color: var(--green);">API Server</div>
+        <div class="arch-node-sub">Express + Validation</div>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-node">
+        <div class="arch-node-title" style="color: var(--yellow);">PostgreSQL</div>
+        <div class="arch-node-sub">Drizzle ORM</div>
+      </div>
+    </div>
+    <div class="arch-flow fade-up" style="margin-top: 16px;">
+      <div class="arch-node" style="opacity: 0; pointer-events: none; min-width: 160px;"></div>
+      <div class="arch-arrow" style="opacity: 0;"></div>
+      <div class="arch-node" style="opacity: 0; pointer-events: none; min-width: 160px;"></div>
+      <div class="arch-arrow" style="opacity: 0;"></div>
+      <div class="arch-node">
+        <div class="arch-node-title" style="color: var(--red);">Redis Pub/Sub</div>
+        <div class="arch-node-sub">Real-time Counters</div>
+      </div>
+      <div class="arch-arrow">&rarr;</div>
+      <div class="arch-node">
+        <div class="arch-node-title" style="color: var(--accent-light);">Dashboard</div>
+        <div class="arch-node-sub">Next.js + SSE</div>
+      </div>
+    </div>
+
+    <!-- Tech Stack Tags -->
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 60px;" class="fade-up">
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">TypeScript</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">Next.js 14</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">Express.js</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">PostgreSQL</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">Redis</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">Drizzle ORM</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">Zod</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">Recharts</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">d3-flame-graph</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">Turborepo</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">TanStack Query</span>
+      <span class="badge" style="background: var(--bg-surface); color: var(--text-secondary); border: 1px solid var(--border);">Visx</span>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Model Pricing ═══════ -->
+<section id="pricing" style="background: var(--bg-surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+  <div class="container">
+    <div class="section-header fade-up">
+      <span class="badge badge-accent">Built-In Pricing</span>
+      <h2 style="margin-top: 16px;">Verified cost for <span class="text-gradient">every model.</span></h2>
+      <p class="section-sub">
+        17+ models with up-to-date pricing. The server re-calculates cost using verified rates, never trusting the client estimate alone.
+      </p>
+    </div>
+
+    <div class="fade-up" style="overflow-x: auto;">
+      <table class="pricing-table">
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>Model</th>
+            <th>Input / 1M tokens</th>
+            <th>Output / 1M tokens</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="color:var(--green);">OpenAI</td><td class="model-name">gpt-4o</td><td class="price">$2.50</td><td class="price">$10.00</td></tr>
+          <tr><td style="color:var(--green);">OpenAI</td><td class="model-name">gpt-4o-mini</td><td class="price">$0.15</td><td class="price">$0.60</td></tr>
+          <tr><td style="color:var(--green);">OpenAI</td><td class="model-name">gpt-4-turbo</td><td class="price">$10.00</td><td class="price">$30.00</td></tr>
+          <tr><td style="color:var(--yellow);">Anthropic</td><td class="model-name">claude-sonnet-4</td><td class="price">$3.00</td><td class="price">$15.00</td></tr>
+          <tr><td style="color:var(--yellow);">Anthropic</td><td class="model-name">claude-3-5-sonnet</td><td class="price">$3.00</td><td class="price">$15.00</td></tr>
+          <tr><td style="color:var(--yellow);">Anthropic</td><td class="model-name">claude-3-opus</td><td class="price">$15.00</td><td class="price">$75.00</td></tr>
+          <tr><td style="color:var(--sky);">Google</td><td class="model-name">gemini-1.5-pro</td><td class="price">$1.25</td><td class="price">$5.00</td></tr>
+          <tr><td style="color:var(--sky);">Google</td><td class="model-name">gemini-2.0-flash-exp</td><td class="price">$0.00</td><td class="price">$0.00</td></tr>
+          <tr><td style="color:var(--sky);">Google</td><td class="model-name">gemini-1.5-flash</td><td class="price">$0.075</td><td class="price">$0.30</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Get Started ═══════ -->
+<section id="get-started" class="cta">
+  <div class="container">
+    <div class="fade-up">
+      <span class="badge badge-green">Get Started in 60 Seconds</span>
+      <h2 style="margin-top: 16px;">Ready to take control?</h2>
+      <p style="max-width: 480px; margin: 0 auto 40px; font-size: 17px;">
+        Clone the repo, spin up with Docker Compose, and start tracking costs immediately.
+      </p>
+    </div>
+
+    <div class="hero-code fade-up" style="max-width: 600px; margin: 0 auto 40px;">
+      <div class="code-block" style="font-size: 13px;">
+        <span class="comment"># Clone & start the stack</span><br />
+        <span class="func">git clone</span> <span class="string">https://github.com/your-org/ai-cost-profiler</span><br />
+        <span class="keyword">cd</span> ai-cost-profiler<br />
+        <span class="func">docker compose up</span> <span class="punct">-d</span><br /><br />
+        <span class="comment"># Install the SDK in your project</span><br />
+        <span class="func">pnpm add</span> <span class="string">@ai-cost-profiler/sdk</span><br /><br />
+        <span class="comment"># Open the dashboard</span><br />
+        <span class="func">open</span> <span class="string">http://localhost:3000</span>
+      </div>
+    </div>
+
+    <div class="hero-actions fade-up">
+      <a href="https://github.com" class="btn btn-primary btn-large" target="_blank">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        View on GitHub
+      </a>
+      <a href="#features" class="btn btn-outline btn-large">Read the Docs</a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ Footer ═══════ -->
+<footer>
+  <div class="container">
+    <p style="margin-bottom: 8px;">
+      <a href="#" class="logo" style="display:inline-flex; font-size:15px; justify-content:center;">
+        <div class="logo-icon" style="width:24px; height:24px; font-size:11px; border-radius:6px;">AI</div>
+        <span>Cost Profiler</span>
+      </a>
+    </p>
+    <p>Built with TypeScript &bull; MIT License &bull; <a href="https://github.com" target="_blank">GitHub</a></p>
+  </div>
+</footer>
+
+<script>
+  // ── Animated chart bars ──
+  const chartEl = document.getElementById('animated-chart');
+  if (chartEl) {
+    const heights = [35,52,44,68,57,82,74,91,63,78,88,55,70,95,60,80,72,65,85,50,92,76,58,84,69,73,87,64,79,90];
+    heights.forEach((h, i) => {
+      const bar = document.createElement('div');
+      bar.className = 'chart-bar';
+      bar.style.height = h + '%';
+      bar.style.animationDelay = (i * 30) + 'ms';
+      chartEl.appendChild(bar);
+    });
+  }
+
+  // ── Scroll reveal ──
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
+
+  // ── Smooth scroll for nav links ──
+  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+      e.preventDefault();
+      const target = document.querySelector(this.getAttribute('href'));
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+</script>
+
+</body>
+</html>

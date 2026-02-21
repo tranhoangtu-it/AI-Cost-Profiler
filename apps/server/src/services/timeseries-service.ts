@@ -36,7 +36,7 @@ export async function getTimeseries(
     LIMIT 1000
   `);
 
-  return (result.rows as TimeseriesRow[]).map((row) => ({
+  return (result.rows as unknown as TimeseriesRow[]).map((row) => ({
     timestamp: row.timestamp instanceof Date ? row.timestamp.toISOString() : new Date(row.timestamp as string).toISOString(),
     value: Number(row.value),
   }));

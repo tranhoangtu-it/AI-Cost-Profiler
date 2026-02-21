@@ -1,5 +1,11 @@
 import { Router, type Router as RouterType } from 'express';
-import { costBreakdownQuerySchema, timeRangeSchema, baseTimeRangeSchema } from '@ai-cost-profiler/shared';
+import {
+  costBreakdownQuerySchema,
+  timeRangeSchema,
+  baseTimeRangeSchema,
+  type CostBreakdownQuery,
+  type TimeRange,
+} from '@ai-cost-profiler/shared';
 import { validateQuery, validateDateRange } from '../middleware/request-validator.js';
 import { rateLimiters } from '../middleware/rate-limiter.js';
 import {
@@ -35,7 +41,7 @@ analyticsRouter.get(
   validateQuery(costBreakdownQuerySchema),
   async (req, res, next) => {
     try {
-      const query = req.query as any;
+      const query = req.query as unknown as CostBreakdownQuery;
       const result = await getCostBreakdown(query);
       res.json(result);
     } catch (error) {
@@ -53,7 +59,7 @@ analyticsRouter.get(
   validateQuery(baseTimeRangeSchema),
   async (req, res, next) => {
     try {
-      const { from, to } = req.query as any;
+      const { from, to } = req.query as unknown as { from: string; to: string };
       const result = await getFlamegraphData(from, to);
       res.json(result);
     } catch (error) {
@@ -71,7 +77,7 @@ analyticsRouter.get(
   validateQuery(timeRangeSchema),
   async (req, res, next) => {
     try {
-      const { from, to, granularity } = req.query as any;
+      const { from, to, granularity } = req.query as unknown as TimeRange;
       const result = await getTimeseries(from, to, granularity);
       res.json(result);
     } catch (error) {
@@ -89,7 +95,7 @@ analyticsRouter.get(
   validateQuery(baseTimeRangeSchema),
   async (req, res, next) => {
     try {
-      const { from, to } = req.query as any;
+      const { from, to } = req.query as unknown as { from: string; to: string };
       const result = await getPromptAnalysis(from, to);
       res.json(result);
     } catch (error) {
@@ -101,7 +107,7 @@ analyticsRouter.get(
 /**
  * GET /realtime-totals - Real-time aggregates from Redis
  */
-analyticsRouter.get('/realtime-totals', rateLimiters.analytics, async (req, res, next) => {
+analyticsRouter.get('/realtime-totals', rateLimiters.analytics, async (_req, res, next) => {
   try {
     const result = await getRealtimeTotals();
     res.json(result);
@@ -115,7 +121,7 @@ analyticsRouter.get('/realtime-totals', rateLimiters.analytics, async (req, res,
  */
 analyticsRouter.get('/events', rateLimiters.analytics, async (req, res, next) => {
   try {
-    const { from, to, cursor, limit, feature, model, provider } = req.query as any;
+    const { from, to, cursor, limit, feature, model, provider } = req.query as Record<string, string | undefined>;
 
     if (!from || !to) {
       return res.status(400).json({ error: 'from and to parameters are required' });
@@ -138,8 +144,12 @@ analyticsRouter.get('/events', rateLimiters.analytics, async (req, res, next) =>
  */
 analyticsRouter.get('/prompts/:id/similar', rateLimiters.analytics, async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const { threshold = '0.8', limit = '10' } = req.query as any;
+    const id = req.params.id;
+    if (!id) {
+      return res.status(400).json({ error: 'Prompt ID is required' });
+    }
+    const threshold = (req.query.threshold as string) ?? '0.8';
+    const limit = (req.query.limit as string) ?? '10';
 
     const result = await findSimilarPrompts(
       id,

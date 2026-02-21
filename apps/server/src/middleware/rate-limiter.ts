@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { redis } from '../lib/redis.js';
+import { logger } from './error-handler.js';
 
 /**
  * Rate limiter configuration
@@ -54,8 +55,8 @@ export function createRateLimiter(config: RateLimiterConfig) {
 
       next();
     } catch (error) {
-      // Fail open if Redis is down
-      console.error('Rate limiter error:', error);
+      // Fail open if Redis is down — log and allow request through
+      logger.warn({ error, keyPrefix: config.keyPrefix }, 'Rate limiter error, failing open');
       next();
     }
   };

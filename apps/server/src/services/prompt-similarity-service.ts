@@ -1,6 +1,7 @@
 import { db, events } from '../db/index.js';
 import { redis } from '../lib/redis.js';
-import { sql, eq, ne, desc } from 'drizzle-orm';
+import { logger, AppError } from '../middleware/error-handler.js';
+import { sql, eq } from 'drizzle-orm';
 import crypto from 'crypto';
 
 /**
@@ -30,7 +31,7 @@ function generatePromptHash(text: string): string {
  */
 export async function findSimilarPrompts(
   eventId: string,
-  threshold: number = 0.8,
+  _threshold: number = 0.8, // Reserved for pgvector cosine similarity implementation
   limit: number = 10
 ): Promise<SimilarPrompt[]> {
   try {
@@ -42,10 +43,10 @@ export async function findSimilarPrompts(
       .limit(1);
 
     if (originalEvent.length === 0) {
-      throw new Error('Event not found');
+      throw new AppError('Event not found', 404);
     }
 
-    const event = originalEvent[0];
+    const event = originalEvent[0]!;
     const promptText = JSON.stringify(event.metadata || {});
     const promptHash = generatePromptHash(promptText);
 
@@ -108,8 +109,9 @@ export async function findSimilarPrompts(
 
     return similarPrompts;
   } catch (error) {
-    console.error('Error finding similar prompts:', error);
-    return [];
+    logger.error({ error, eventId }, 'Error finding similar prompts');
+    if (error instanceof AppError) throw error;
+    throw new AppError('Failed to find similar prompts', 500);
   }
 }
 

@@ -4,11 +4,14 @@ import { logger } from '../middleware/error-handler.js';
 
 /**
  * SSE connection manager for real-time cost updates
+ * Includes heartbeat to keep connections alive through proxies/load balancers
  */
 class SSEManager {
   private clients: Set<Response> = new Set();
   private isSubscribed = false;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
   private readonly maxClients = 100;
+  private readonly heartbeatIntervalMs = 30_000; // 30s — below typical proxy timeout of 60s
 
   /**
    * Add SSE client and send initial connection message
@@ -38,9 +41,10 @@ class SSEManager {
       timestamp: new Date().toISOString(),
     });
 
-    // Setup Redis subscription if first client
+    // Setup Redis subscription and heartbeat if first client
     if (!this.isSubscribed) {
       this.setupSubscription();
+      this.startHeartbeat();
     }
 
     // Handle client disconnect
@@ -84,9 +88,41 @@ class SSEManager {
   }
 
   /**
+   * Start heartbeat timer to keep connections alive through proxies
+   * Sends SSE comment (: keepalive) which clients ignore but proxies see as activity
+   */
+  private startHeartbeat(): void {
+    this.heartbeatTimer = setInterval(() => {
+      const deadClients: Response[] = [];
+
+      for (const client of this.clients) {
+        try {
+          client.write(': keepalive\n\n');
+        } catch {
+          deadClients.push(client);
+        }
+      }
+
+      // Remove dead clients discovered during heartbeat
+      for (const client of deadClients) {
+        this.clients.delete(client);
+      }
+
+      if (deadClients.length > 0) {
+        logger.info({
+          removed: deadClients.length,
+          activeClients: this.clients.size,
+        }, 'Removed dead SSE clients during heartbeat');
+      }
+    }, this.heartbeatIntervalMs);
+
+    this.heartbeatTimer.unref();
+  }
+
+  /**
    * Broadcast message to all connected clients
    */
-  private broadcast(message: any): void {
+  private broadcast(message: unknown): void {
     const deadClients: Response[] = [];
 
     for (const client of this.clients) {
@@ -112,7 +148,7 @@ class SSEManager {
   /**
    * Send message to single client
    */
-  private sendToClient(client: Response, message: any): boolean {
+  private sendToClient(client: Response, message: unknown): boolean {
     try {
       const data = JSON.stringify(message);
       client.write(`data: ${data}\n\n`);
@@ -124,13 +160,18 @@ class SSEManager {
   }
 
   /**
-   * Cleanup subscription when no clients remain
+   * Cleanup subscription and heartbeat when no clients remain
    */
   private cleanup(): void {
     if (this.isSubscribed) {
       subscriber.unsubscribe(REDIS_KEYS.SSE_CHANNEL);
       this.isSubscribed = false;
       logger.info('Unsubscribed from Redis SSE channel');
+    }
+
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
     }
   }
 

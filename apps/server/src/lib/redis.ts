@@ -1,4 +1,5 @@
 import Redis from 'ioredis';
+import { logger } from '../middleware/error-handler.js';
 
 /**
  * Redis configuration from environment
@@ -55,26 +56,37 @@ export async function disconnectRedis(): Promise<void> {
 }
 
 /**
- * Initialize Redis with default values
+ * Initialize Redis with default values using SETNX (atomic, no race condition)
+ * Safe for concurrent server instances starting simultaneously
  */
 export async function initializeRedis(): Promise<void> {
   const pipeline = redis.pipeline();
 
-  // Set default counters if not exist
-  const exists = await redis.exists(REDIS_KEYS.TOTAL_COST);
-  if (!exists) {
-    pipeline.set(REDIS_KEYS.TOTAL_COST, '0');
-    pipeline.set(REDIS_KEYS.TOTAL_REQUESTS, '0');
-    pipeline.set(REDIS_KEYS.TOTAL_TOKENS, '0');
-    await pipeline.exec();
+  // SETNX = SET if Not eXists — atomic, prevents TOCTOU race
+  pipeline.setnx(REDIS_KEYS.TOTAL_COST, '0');
+  pipeline.setnx(REDIS_KEYS.TOTAL_REQUESTS, '0');
+  pipeline.setnx(REDIS_KEYS.TOTAL_TOKENS, '0');
+
+  await pipeline.exec();
+}
+
+/**
+ * Check Redis health — returns true if responsive
+ */
+export async function isRedisHealthy(): Promise<boolean> {
+  try {
+    const result = await redis.ping();
+    return result === 'PONG';
+  } catch {
+    return false;
   }
 }
 
-// Error handlers
+// Error handlers using structured logger
 redis.on('error', (err) => {
-  console.error('Redis client error:', err);
+  logger.error({ err, client: 'main' }, 'Redis client error');
 });
 
 subscriber.on('error', (err) => {
-  console.error('Redis subscriber error:', err);
+  logger.error({ err, client: 'subscriber' }, 'Redis subscriber error');
 });

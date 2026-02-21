@@ -31,8 +31,8 @@ async function start(): Promise<void> {
     });
 
     // Graceful shutdown
-    const shutdown = async (): Promise<void> => {
-      logger.info('Shutting down gracefully...');
+    const shutdown = async (signal: string): Promise<void> => {
+      logger.info({ signal }, 'Shutting down gracefully...');
 
       server.close(async () => {
         await Promise.all([
@@ -51,13 +51,23 @@ async function start(): Promise<void> {
       }, 10000);
     };
 
-    process.on('SIGTERM', shutdown);
-    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
 
   } catch (error) {
     logger.error({ error }, 'Failed to start server');
     process.exit(1);
   }
 }
+
+// Global error handlers — catch unhandled errors to prevent silent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error({ reason, promise: String(promise) }, 'Unhandled promise rejection');
+});
+
+process.on('uncaughtException', (error) => {
+  logger.fatal({ error }, 'Uncaught exception — shutting down');
+  process.exit(1);
+});
 
 start();

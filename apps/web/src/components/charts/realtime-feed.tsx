@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { formatCost } from '@/lib/utils';
+import { API_BASE } from '@/lib/api-client';
 
 interface RealtimeEvent {
   count: number;
@@ -11,7 +12,6 @@ interface RealtimeEvent {
   type?: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3100';
 const MAX_RETRIES = 10;
 
 export function RealtimeFeed() {

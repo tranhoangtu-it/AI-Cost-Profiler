@@ -1,6 +1,6 @@
 import { db, events } from '../db/index.js';
 import { redis, REDIS_KEYS } from '../lib/redis.js';
-import { lookupPricing, calculateCost } from '@ai-cost-profiler/shared';
+import { calculateCost } from '@ai-cost-profiler/shared';
 import type { LlmEvent } from '@ai-cost-profiler/shared';
 import { logger } from '../middleware/error-handler.js';
 
@@ -12,8 +12,6 @@ export async function processEventBatch(batch: LlmEvent[]): Promise<void> {
   try {
     // Enrich events with verified cost
     const enrichedEvents = batch.map((event) => {
-      const pricing = lookupPricing(event.model);
-
       // Recalculate cost with verified pricing (per 1M tokens)
       const verifiedCost = calculateCost(
         event.model,

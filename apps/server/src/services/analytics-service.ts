@@ -50,7 +50,7 @@ export async function getPromptAnalysis(
     LIMIT 20
   `);
 
-  return (result.rows as PromptAnalysisRow[]).map((row) => ({
+  return (result.rows as unknown as PromptAnalysisRow[]).map((row) => ({
     promptHash: row.prompt_hash,
     content: row.content,
     occurrences: Number(row.occurrences),

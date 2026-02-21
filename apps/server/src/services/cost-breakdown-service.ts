@@ -40,7 +40,7 @@ export async function getCostBreakdown(
     LIMIT 500
   `);
 
-  return (result.rows as CostBreakdownRow[]).map((row) => ({
+  return (result.rows as unknown as CostBreakdownRow[]).map((row) => ({
     dimension: row.dimension,
     totalCostUsd: Number(row.total_cost_usd),
     totalTokens: Number(row.total_tokens),

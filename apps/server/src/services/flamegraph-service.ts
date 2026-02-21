@@ -25,7 +25,7 @@ export async function getFlamegraphData(
     LIMIT 1000
   `);
 
-  const rows = result.rows as FlamegraphRow[];
+  const rows = result.rows as unknown as FlamegraphRow[];
   const root: FlamegraphNode = { name: 'root', value: 0, children: [] };
   const projectNodes = new Map<string, FlamegraphNode>();
   const featureNodes = new Map<string, FlamegraphNode>();

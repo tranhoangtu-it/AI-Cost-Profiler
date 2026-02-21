@@ -6,13 +6,19 @@ import { eventRouter } from './routes/event-routes.js';
 import { analyticsRouter } from './routes/analytics-routes.js';
 import { streamRouter } from './routes/stream-routes.js';
 import { exportRouter } from './routes/export-routes.js';
-import { errorHandler, notFoundHandler } from './middleware/error-handler.js';
+import { errorHandler, notFoundHandler, requestIdMiddleware } from './middleware/error-handler.js';
+import { apiKeyAuth } from './middleware/api-key-auth.js';
+import { isRedisHealthy } from './lib/redis.js';
+import { pool } from './db/index.js';
 
 /**
  * Create and configure Express application
  */
 export function createApp(): express.Application {
   const app = express();
+
+  // Request ID tracking (must be first for log correlation)
+  app.use(requestIdMiddleware);
 
   // Security middleware
   app.use(helmet({
@@ -36,13 +42,28 @@ export function createApp(): express.Application {
     },
   }));
 
-  // Health check
-  app.get('/health', (req, res) => {
-    res.json({
-      status: 'ok',
+  // Comprehensive health check with dependency status
+  app.get('/health', async (_req, res) => {
+    const [redisOk, dbOk] = await Promise.all([
+      isRedisHealthy(),
+      pool.query('SELECT 1').then(() => true).catch(() => false),
+    ]);
+
+    const healthy = redisOk && dbOk;
+
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
+      dependencies: {
+        redis: redisOk ? 'ok' : 'down',
+        database: dbOk ? 'ok' : 'down',
+      },
     });
   });
+
+  // API key authentication for all /api routes
+  // Disabled when API_KEYS env var is not set (development mode)
+  app.use('/api', apiKeyAuth);
 
   // API routes (v1)
   app.use('/api/v1/events', eventRouter);

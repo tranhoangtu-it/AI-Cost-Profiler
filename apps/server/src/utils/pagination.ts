@@ -49,10 +49,11 @@ export function formatPaginatedResponse<T extends { createdAt: Date; id: string 
   const hasMore = data.length > limit;
   const items = hasMore ? data.slice(0, limit) : data;
 
-  const nextCursor = hasMore && items.length > 0
+  const lastItem = items[items.length - 1];
+  const nextCursor = hasMore && lastItem
     ? encodeCursor({
-        timestamp: items[items.length - 1].createdAt.getTime(),
-        id: items[items.length - 1].id,
+        timestamp: lastItem.createdAt.getTime(),
+        id: lastItem.id,
       })
     : null;
 
