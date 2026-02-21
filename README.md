@@ -195,14 +195,14 @@ NEXT_PUBLIC_API_URL=http://localhost:3100
 
 ## Security Features
 
-✅ **Parameterized SQL** - All Drizzle queries prevent SQL injection
-✅ **Input Validation** - Zod schemas on all API endpoints
-✅ **Helmet Middleware** - Security headers configured
-✅ **Rate Limiting** - Atomic Redis pipeline, fixed-window (no orphaned keys)
-✅ **SSE Limits** - Max 100 concurrent connections (503 if exceeded)
-✅ **Export Limits** - Max 10,000 rows per request
-✅ **CORS** - Configurable via `CORS_ORIGIN` env
-✅ **Error Messages** - Safe error responses (no stack leaks)
+- ✅ **Parameterized SQL** - All Drizzle queries prevent SQL injection
+- ✅ **Input Validation** - Zod schemas on all API endpoints
+- ✅ **Helmet Middleware** - Security headers configured
+- ✅ **Rate Limiting** - Atomic Redis pipeline, fixed-window (no orphaned keys)
+- ✅ **SSE Limits** - Max 100 concurrent connections (503 if exceeded)
+- ✅ **Export Limits** - Max 10,000 rows per request
+- ✅ **CORS** - Configurable via `CORS_ORIGIN` env
+- ✅ **Error Messages** - Safe error responses (no stack leaks)
 
 ## Performance
 
