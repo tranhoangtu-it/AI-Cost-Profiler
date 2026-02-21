@@ -28,3 +28,6 @@ coverage/
 storybook-static/
 playwright-report/
 repomix-output.xml
+*plans/
+plans/
+CLAUDE.md
