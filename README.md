@@ -9,7 +9,7 @@
 
 AI Cost Profiler analyzes token usage, latency, and model selection across your AI workflows to reveal where money is actually being spent. It detects prompt bloat, redundant calls, and inefficient context usage, then maps cost per feature or user action.
 
-**Platform**: TypeScript monorepo (Turborepo + pnpm) | **Backend**: Express + PostgreSQL + Redis | **Frontend**: Next.js 14 + Recharts + d3-flame-graph | **Testing**: Vitest (175 passing tests)
+**Platform**: TypeScript monorepo (Turborepo + pnpm) | **Backend**: Express + PostgreSQL + Redis | **Frontend**: Next.js 15 + Recharts + d3-flame-graph | **Testing**: Vitest (175 passing tests)
 
 ## Key Features
 
@@ -26,6 +26,7 @@ AI Cost Profiler analyzes token usage, latency, and model selection across your 
 
 ### Prerequisites
 - **Node.js 20+** and **pnpm 9+**
+- **64-bit OS** (x64 or arm64) — Next.js 15 no longer ships native binaries for 32-bit Windows (win32-ia32)
 - **Docker** (for PostgreSQL + Redis)
 
 ### Setup
